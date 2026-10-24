@@ -1,0 +1,69 @@
+[project]
+name = "agent-chassis"
+version = "0.3.0"
+description = "Runtime chassis for role-based AI Employees: role manifests + capability packs on a durable execution core."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "cryptography>=49.0.0",
+    "fastapi>=0.139.0",
+    "httpx>=0.28.1",
+    "opentelemetry-exporter-otlp-proto-http>=1.43.0",
+    "opentelemetry-sdk>=1.43.0",
+    "pgvector>=0.3",
+    "psycopg[binary,pool]>=3.2",
+    "pydantic>=2.12",
+    "pydantic-ai-slim[anthropic,openai,temporal]>=2.7.0",
+    "pydantic-settings>=2.13",
+    "pyyaml>=6.0.3",
+    "uvicorn>=0.51.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
+[dependency-groups]
+dev = [
+    "import-linter>=2.3",
+    "pytest>=9.0",
+    "pytest-asyncio>=1.3",
+    "pytest-cov>=7.0",
+    "ruff>=0.15",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src/agent_chassis"]
+relative_files = true
+
+[tool.importlinter]
+root_package = "agent_chassis"
+include_external_packages = true
+
+# D2: only the pydantic-ai adapter may import the vendor SDK. Every new
+# chassis package must be added to source_modules; adapters are excluded.
+[[tool.importlinter.contracts]]
+name = "Vendor runtime stays behind the adapter seam (D2)"
+type = "forbidden"
+source_modules = [
+    "agent_chassis.channels",
+    "agent_chassis.config",
+    "agent_chassis.contracts",
+    "agent_chassis.durable",
+    "agent_chassis.evals",
+    "agent_chassis.introspection",
+    "agent_chassis.manifest",
+    "agent_chassis.memory",
+    "agent_chassis.observability",
+    "agent_chassis.packs",
+    "agent_chassis.role_loader",
+    "agent_chassis.utils",
+]
+forbidden_modules = ["pydantic_ai"]

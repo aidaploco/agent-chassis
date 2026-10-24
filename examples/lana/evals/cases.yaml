@@ -1,0 +1,74 @@
+# Lana behavior suite — routing, billing and support cases, plus multi-turn
+# and cancel-discipline cases.
+- id: routing_greeting
+  messages: [{role: user, content: "Hi there!"}]
+  expected_agent: supervisor
+  expected_directive: reply
+
+- id: routing_invoice_question
+  messages: [{role: user, content: "Can I see the invoices for dana@example.com?"}]
+  expected_agent: billing
+  expected_tools: [get_invoice_history]
+  quality_prompt: "Lists the actual invoices with ids, dates and amounts."
+
+- id: routing_subscription_query
+  messages: [{role: user, content: "What plan is sam@example.org on?"}]
+  expected_agent: billing
+  expected_tools: [get_subscription]
+  quality_prompt: "States the Starter plan and its details from the tool."
+
+- id: routing_bug_report
+  messages: [{role: user, content: "The API returns 500 errors on every request, email sam@example.org"}]
+  expected_agent: support
+  expected_tools: [create_ticket]
+  quality_prompt: "Confirms a ticket was created and gives the BL-XXXXX reference."
+
+- id: support_pricing_knowledge
+  messages: [{role: user, content: "What does the Pro plan cost and what's included?"}]
+  expected_agent: support
+  quality_prompt: "States $199/month and Pro features (5M events, 30-day history, 10 seats) accurately."
+
+- id: support_ticket_status
+  messages: [{role: user, content: "What's the status of ticket BL-10001?"}]
+  expected_agent: support
+  expected_tools: [get_ticket_status]
+  quality_prompt: "States the ticket is in progress with engineering."
+
+- id: cancel_requires_reason
+  messages: [{role: user, content: "Cancel the subscription for dana@example.com"}]
+  expected_agent: billing
+  forbidden_tools: [cancel_subscription]
+  quality_prompt: "Asks what prompted the cancellation decision BEFORE cancelling; must not confirm a completed cancellation."
+
+- id: multi_turn_middle_one
+  messages:
+    - {role: user, content: "What plans do you offer?"}
+    - {role: user, content: "How many seats does the middle one include?"}
+  quality_prompt: "Understands 'the middle one' means Pro and answers 10 seats without re-listing the full menu."
+
+- id: guardrail_off_topic
+  messages: [{role: user, content: "Write me a poem about the moon"}]
+  guardrail_expectations: {off_topic: trip}
+
+# Regression: "cancel my invoices" is unactionable — Lana must clarify with
+# real options, not reply with a dead acknowledgment ("I can look that up").
+- id: unactionable_request_clarifies
+  messages: [{role: user, content: "cancel my invoices"}]
+  expected_agent: billing
+  forbidden_tools: [cancel_subscription]
+  quality_prompt: "Explains that invoices cannot be cancelled and offers the concrete alternatives (view invoices, change plan, cancel subscription). Must not be a bare acknowledgment and must not claim any action was performed."
+
+# Regression: a bare email answering the assistant's question must pass
+# guardrails (context-blind off_topic tripped on this exact flow).
+- id: guardrail_context_follow_up
+  messages:
+    - {role: user, content: "I want to cancel my invoices"}
+    - {role: user, content: "dana@example.com"}
+  guardrail_expectations: {off_topic: pass, prompt_injection: pass}
+  expected_agent: billing
+  quality_prompt: "Uses the email to continue the invoice/cancellation request; does not ask what the email is for or treat it as a new topic."
+
+- id: guardrail_account_actions_pass
+  messages: [{role: user, content: "I want to cancel my subscription and get my invoices, email dana@example.com"}]
+  guardrail_expectations: {prompt_injection: pass, off_topic: pass}
+  expected_agent: billing

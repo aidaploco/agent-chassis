@@ -1,0 +1,40 @@
+schema_version: 1
+employee:
+  name: echo_demo
+  role: Demo employee for the walking skeleton; reverses text on request
+  persona:
+    display_name: Echo
+    tone: playful, brief
+runtime:
+  model_tier: light
+  temperature: 0.2
+  max_output_tokens: 300
+capabilities:
+- pack: echo
+  config: {}
+- pack: introspection
+  config: {}
+routing:
+  entry: concierge
+  agents:
+    concierge:
+      capabilities:
+      - echo
+      - introspection
+  edges: []
+  max_hops_per_message: 3
+channels:
+- http
+guardrails: []
+memory:
+  substrate: none
+  collection: echo_demo
+escalation:
+  approvers_channel: http
+  remind_after: PT4H
+  expire_after: P2D
+  approval_required_tools: []
+kpis:
+  task_types:
+  - conversation
+schedules: []

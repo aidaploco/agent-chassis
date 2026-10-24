@@ -1,0 +1,73 @@
+services:
+  temporal:
+    image: temporalio/temporal:1.7.2
+    command: ["server", "start-dev", "--ip", "0.0.0.0"]
+    ports:
+      - "7234:7233"  # non-default host port — avoids clashing with other local stacks
+      - "8234:8233"  # Temporal UI on host 8234
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: .
+    ports:
+      - "8001:8000"  # non-default host port — avoids clashing with other local stacks
+    env_file:
+      - .env
+    environment: &chassis-env
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: echo-demo
+      TEMPORAL_PAYLOAD_CODEC_KEY: ${TEMPORAL_PAYLOAD_CODEC_KEY:?Set in .env — openssl rand -base64 32}
+      MANIFEST_PATH: /app/role/manifest.yaml
+      PACKS_DIR: /app/role/packs
+      # Phoenix is deployment infrastructure: in a cluster the deployment
+      # injects the tenant's own collector endpoint. Locally,
+      # optionally point at any Phoenix you run yourself (e.g.
+      # http://host.docker.internal:6006/v1/traces); unset = tracing off.
+      PHOENIX_COLLECTOR_ENDPOINT: ${PHOENIX_COLLECTOR_ENDPOINT:-}
+    volumes:
+      - ${ROLE_DIR:-./examples/skeleton}/manifest.yaml:/app/role/manifest.yaml:ro
+      - ${ROLE_DIR:-./examples/skeleton}/packs:/app/role/packs:ro
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["python", "-m", "agent_chassis.worker"]
+    env_file:
+      - .env
+    environment:
+      <<: *chassis-env
+      POSTGRES_URL: postgresql://chassis:chassis@postgres:5432/chassis
+    volumes:
+      - ${ROLE_DIR:-./examples/skeleton}/manifest.yaml:/app/role/manifest.yaml:ro
+      - ${ROLE_DIR:-./examples/skeleton}/packs:/app/role/packs:ro
+    depends_on:
+      temporal:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: chassis
+      POSTGRES_PASSWORD: chassis
+      POSTGRES_DB: chassis
+    ports:
+      - "5433:5432"  # non-default host port — avoids clashing with other local stacks
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chassis"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:

@@ -1,0 +1,60 @@
+# Nova — the V1 second Employee: ops/reporting on TaskWorkflow (D6).
+# Same chassis, same builtin guardrail packs as Lana but with different
+# thresholds (acceptance matrix), zero chassis special-casing.
+schema_version: 1
+employee:
+  name: nova
+  role: "Operations reporting assistant for Brightloop's internal ops team"
+  persona:
+    display_name: "Nova"
+    tone: "terse, numbers-first, zero fluff"
+runtime:
+  model_tier: standard
+  temperature: 0.1
+  max_output_tokens: 1024
+  history_budget:
+    max_turns: 20
+    summary_max_tokens: 256
+capabilities:
+  - pack: reporting
+    config: {}
+  - pack: introspection
+    config: {}
+routing:
+  entry: reporter
+  agents:
+    reporter: {capabilities: [reporting, introspection]}
+  edges: []
+  max_hops_per_message: 1
+channels: [http]
+guardrails:
+  # Same builtin packs as Lana, different thresholds: internal ops traffic
+  # tolerates longer messages and stricter topicality.
+  - pack: message_length
+    config: {max_chars: 4000}
+  - pack: prompt_injection
+    config: {threshold: 0.5}
+  - pack: off_topic
+    config:
+      threshold: 0.8
+      topic: "Brightloop platform operations: delivery metrics, errors, reports"
+memory:
+  substrate: pgvector
+  collection: nova
+escalation:
+  approvers_channel: http
+  remind_after: PT1H
+  expire_after: PT8H
+  approval_required_tools: [publish_report]
+kpis:
+  task_types: [daily_ops_report]
+tasks:
+  - name: daily_ops_report
+    agent: reporter
+    prompt: >
+      Compile today's operations report: pull the delivery metrics and the
+      error summary, then publish a concise report titled 'Daily Ops Report'.
+schedules:
+  - name: daily_morning
+    cron: "0 8 * * *"
+    task: daily_ops_report

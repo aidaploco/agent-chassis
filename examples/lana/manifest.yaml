@@ -1,0 +1,59 @@
+# Lana — the V1 customer-service Employee: billing/support/supervisor
+# behavior expressed as manifest + packs.
+schema_version: 1
+employee:
+  name: lana
+  role: "Customer service assistant for Brightloop, a webhook delivery and API orchestration platform"
+  persona:
+    display_name: "Lana"
+    tone: "direct, warm, leads with the answer, one issue at a time"
+runtime:
+  model_tier: standard
+  temperature: 0.3
+  max_output_tokens: 1024
+  # Supervisor ran on the light tier until 2026-07-10: it misrouted pricing
+  # and plan questions to billing. Routing quality is a model problem, not a
+  # prompt problem.
+  history_budget:
+    max_turns: 40
+    summary_max_tokens: 512
+capabilities:
+  - pack: billing
+    config: {}
+  - pack: support
+    config: {}
+  - pack: introspection
+    config: {}
+routing:
+  entry: supervisor
+  agents:
+    supervisor: {capabilities: [introspection]}
+    billing: {capabilities: [billing]}
+    support: {capabilities: [support]}
+  edges:
+    - [supervisor, billing]
+    - [supervisor, support]
+    - [billing, supervisor]
+    - [support, supervisor]
+  max_hops_per_message: 3
+channels: [http]
+guardrails:
+  - pack: message_length
+    config: {max_chars: 1000}
+  - pack: prompt_injection
+    config: {threshold: 0.7}
+  - pack: off_topic
+    config:
+      threshold: 0.5
+      topic: "Brightloop customer service: product, billing, support, account"
+memory:
+  substrate: pgvector
+  collection: lana
+escalation:
+  approvers_channel: http
+  remind_after: PT4H
+  expire_after: P2D
+  approval_required_tools: []
+kpis:
+  task_types: [conversation]
+schedules: []

@@ -1,0 +1,49 @@
+schema_version: 1
+employee:
+  name: lana
+  role: "Customer service for Brightloop"
+  persona:
+    display_name: "Zara"
+    tone: "direct, warm, leads with the answer"
+runtime:
+  model_tier: standard
+  temperature: 0.3
+  max_output_tokens: 1024
+  history_budget:
+    max_turns: 40
+    summary_max_tokens: 512
+capabilities:
+  - pack: billing
+    config:
+      currency: USD
+  - pack: support
+    config: {}
+routing:
+  entry: supervisor
+  agents:
+    supervisor: {capabilities: []}
+    billing: {capabilities: [billing]}
+    support: {capabilities: [support]}
+  edges:
+    - [supervisor, billing]
+    - [supervisor, support]
+    - [billing, supervisor]
+    - [support, supervisor]
+  max_hops_per_message: 3
+channels: [http]
+guardrails:
+  - pack: message_length
+    config: {max_chars: 1000}
+  - pack: prompt_injection
+    config: {threshold: 0.8}
+memory:
+  substrate: pgvector
+  collection: lana
+escalation:
+  approvers_channel: http
+  remind_after: PT4H
+  expire_after: P2D
+  approval_required_tools: []
+kpis:
+  task_types: [conversation]
+schedules: []
