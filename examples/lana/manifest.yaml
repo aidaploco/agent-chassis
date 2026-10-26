@@ -45,7 +45,7 @@ guardrails:
   - pack: off_topic
     config:
       threshold: 0.5
-      topic: "Brightloop customer service: product, billing, support, account"
+      topic: "Brightloop customer service: the product, pricing and plans, billing, support, security and compliance, and account questions"
 memory:
   substrate: pgvector
   collection: lana

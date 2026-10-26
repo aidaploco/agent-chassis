@@ -68,6 +68,14 @@
   expected_agent: billing
   quality_prompt: "Uses the email to continue the invoice/cancellation request; does not ask what the email is for or treat it as a new topic."
 
+# Regression: security/compliance questions are ordinary support, not off-topic
+# (a narrower topic string made the LLM check flag these about half the time).
+- id: guardrail_security_question_passes
+  messages: [{role: user, content: "Is Brightloop SOC 2 compliant?"}]
+  guardrail_expectations: {off_topic: pass, prompt_injection: pass}
+  expected_agent: support
+  quality_prompt: "Answers from the company knowledge that Brightloop holds SOC 2 Type II; does not refuse."
+
 - id: guardrail_account_actions_pass
   messages: [{role: user, content: "I want to cancel my subscription and get my invoices, email dana@example.com"}]
   guardrail_expectations: {prompt_injection: pass, off_topic: pass}

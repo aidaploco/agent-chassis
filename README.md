@@ -12,7 +12,7 @@ Onboarding a new Employee should be **new YAML, not new code.** Everything that 
 
 Two Employees ship in [`examples/`](examples/) as permanent fixtures, plus a minimal third:
 
-- **Lana**: customer service (a routing supervisor, billing and support specialists, guardrails, memory). Proves the chassis can carry a real multi-agent conversational role. Ships 12 eval cases.
+- **Lana**: customer service (a routing supervisor, billing and support specialists, guardrails, memory). Proves the chassis can carry a real multi-agent conversational role. Ships 13 eval cases.
 - **Nova**: operations reporting. Runs on a cron schedule and **pauses for human approval** before publishing. Proves a very different role shape needs zero chassis changes.
 - **Echo** (`skeleton/`): one agent, one trivial tool. The walking skeleton, and the default role for `docker compose up`.
 
@@ -99,9 +99,10 @@ uv run lint-imports                              # the adapter seam contract (D2
 
 The unit tests need nothing external. The integration tests run Temporal's in-process test server, and the pgvector tests start a throwaway Postgres container, so Docker must be running. CI runs lint, import-linter, and the full suite with an 80% coverage gate (currently about 84%).
 
-The **eval harness** (D17) drives real conversations through a running Employee and grades them. Lana's suite has 12 cases, including multi-turn and cancel-discipline cases. With the stack up:
+The **eval harness** (D17) drives real conversations through a running Employee and grades them. Lana's suite has 13 cases, including multi-turn and cancel-discipline cases. With the stack up (the runner reads `OPENAI_API_KEY` from the shell, not from `.env`, so export it first):
 
 ```bash
+set -a; source .env; set +a
 EVAL_JUDGE_MODEL=openai:gpt-5.4-mini-2026-03-17 \
   python -m agent_chassis.evals http://localhost:8001 examples/lana/evals
 ```
