@@ -20,7 +20,7 @@ services:
     environment: &chassis-env
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
-      TEMPORAL_TASK_QUEUE: echo-demo
+      TEMPORAL_TASK_QUEUE: agent-chassis
       TEMPORAL_PAYLOAD_CODEC_KEY: ${TEMPORAL_PAYLOAD_CODEC_KEY:?Set in .env — openssl rand -base64 32}
       MANIFEST_PATH: /app/role/manifest.yaml
       PACKS_DIR: /app/role/packs
