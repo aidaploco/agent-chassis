@@ -52,6 +52,16 @@ flowchart LR
 
 Scheduled work (Nova) takes a parallel path through `TaskWorkflow`, which adds the durable approval state machine.
 
+## What it looks like
+
+One turn through Lana ("What plan is dana@example.com on?"), seen in [Arize Phoenix](https://github.com/Arize-ai/phoenix). The three guardrails are their own spans, then the supervisor routes to the billing agent, which calls `get_subscription` (D19):
+
+![Phoenix trace of one Lana turn: three guardrail spans, the supervisor, the billing agent and a tool call](docs/images/phoenix-trace.jpg)
+
+The same conversation in the Temporal UI. Each guardrail check and model call is a durable activity, and every payload is stored encrypted (D9):
+
+![Temporal event history for a conversation workflow: guardrail activities, agent model requests and a tool call, with encrypted payloads](docs/images/temporal-history.jpg)
+
 ## Quickstart
 
 Requires Python 3.13+ with [`uv`](https://docs.astral.sh/uv/), and Docker for the full stack. The default models are OpenAI's, so running an Employee needs an API key.
