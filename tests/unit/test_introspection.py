@@ -138,9 +138,12 @@ async def test_describe_self_tool(resolved):
     assert '"employee": "lana"' in output and "get_invoice" in output
 
 
-def test_setup_tracing_fail_soft(monkeypatch):
+def test_setup_tracing_fail_soft(monkeypatch, tmp_path):
     from agent_chassis.observability import setup_tracing
 
+    # Settings also read ./.env; run from an empty dir so a developer's local
+    # tracing endpoint can't flip this test.
+    monkeypatch.chdir(tmp_path)
     setup_tracing.cache_clear()
     monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
