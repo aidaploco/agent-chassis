@@ -54,3 +54,31 @@ jobs:
           tar -xzf gitleaks.tar.gz gitleaks
       - name: Scan history for secrets
         run: ./gitleaks git . --redact --verbose
+
+  # The single check to require in branch protection / a ruleset. Requiring
+  # lint, test and secrets individually means touching repo settings every time
+  # a job is added or renamed; requiring this one means adding the job to
+  # `needs:` below and nothing else.
+  #
+  # `if: always()` is load-bearing: without it a failed or skipped dependency
+  # skips this job too, and GitHub treats a skipped required check as passing.
+  #
+  # Fail closed: only `success` counts. That includes `skipped`, so a fork PR
+  # (whose jobs are deliberately skipped above) shows a red check instead of a
+  # false green. A maintainer re-runs it from a branch in this repository.
+  ci-success:
+    needs: [lint, test, secrets]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every job to have succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS"
+          failed=$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"')
+          if [ -n "$failed" ]; then
+            echo "::error::Not every required job succeeded:"
+            echo "$failed"
+            exit 1
+          fi
