@@ -38,7 +38,7 @@ flowchart LR
 - **Durable by construction (D1, D6a).** Conversation history is workflow state carried through continue-as-new, and every model and tool call is its own activity. A worker can be killed mid-conversation or mid-approval and the work resumes.
 - **Human approval is a workflow state (D10, D11).** A gated tool pauses the task, possibly for days. Decisions are attributed to the authenticated principal and written to an append-only audit log.
 - **Fail closed.** The worker refuses to start without a payload-encryption key (D9), manifests reject unknown fields and out-of-bounds guardrail thresholds (D7), and approval endpoints refuse to serve unauthenticated (D21).
-- **Observability (D19).** One readable trace tree per turn, with guardrails as first-class spans, exported to [Arize Phoenix](https://github.com/Arize-ai/phoenix) when `PHOENIX_COLLECTOR_ENDPOINT` is set.
+- **Observability (D19).** One readable trace tree per turn, with guardrails as first-class spans, exported over OTLP to [Arize Phoenix](https://github.com/Arize-ai/phoenix) (or any OTLP backend) when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
 
 ### The lifecycle of one message
 
@@ -57,6 +57,14 @@ Scheduled work (Nova) takes a parallel path through `TaskWorkflow`, which adds t
 One turn through Lana ("What plan is dana@example.com on?"), seen in [Arize Phoenix](https://github.com/Arize-ai/phoenix). The three guardrails are their own spans, then the supervisor routes to the billing agent, which calls `get_subscription` (D19):
 
 ![Phoenix trace of one Lana turn: three guardrail spans, the supervisor, the billing agent and a tool call](docs/images/phoenix-trace.jpg)
+
+The backend is just an OTLP endpoint, so the same traces also go to [Pydantic Logfire](https://pydantic.dev/logfire). The same turn has the same tree there: guardrails, supervisor, billing agent and tool call, with token totals rolled up on the root:
+
+![Logfire trace of one Lana turn: three guardrail spans, the supervisor, the billing agent and a tool call](docs/images/logfire-trace.png)
+
+Two turns of one conversation arrive as two traces sharing `session.id` (the support turn's attributes are open). Phoenix-specific attributes such as `openinference.span.kind` show as plain attributes there; see the D19 notes in `DESIGN.md`:
+
+![Logfire showing two Lana turns as separate traces, with session.id and turn.number in the span attributes](docs/images/logfire-sessions.png)
 
 The same conversation in the Temporal UI. Each guardrail check and model call is a durable activity, and every payload is stored encrypted (D9):
 
@@ -132,7 +140,8 @@ Settings load from environment variables or `.env` ([`config.py`](src/agent_chas
 | `MANIFEST_PATH` | required | The role manifest to run |
 | `PACKS_DIR` | unset | Directory of role-supplied capability packs |
 | `POSTGRES_URL` | unset | Memory substrate; a manifest with `substrate: none` runs without it |
-| `PHOENIX_COLLECTOR_ENDPOINT` | unset | Tracing is disabled when unset |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | unset | Full OTLP/HTTP traces URL (Phoenix, Logfire, …). Tracing is disabled when unset. `PHOENIX_COLLECTOR_ENDPOINT` is a legacy alias |
+| `OTEL_EXPORTER_OTLP_HEADERS` | unset | `k=v,k2=v2` auth headers for the backend (e.g. a Logfire write token) |
 | `HTTP_BEARER_TOKENS` | unset | `token:principal,...`. When set, every `/v1/*` call needs a token (D21) |
 | `SLACK_SIGNING_SECRET`, `SLACK_WEBHOOK_URL` | unset | Verify inbound Slack-shaped webhooks; push replies out |
 | `CONVERSATION_IDLE_SECONDS` | `3600` | Idle timeout before a conversation completes |

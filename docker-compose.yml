@@ -24,11 +24,15 @@ services:
       TEMPORAL_PAYLOAD_CODEC_KEY: ${TEMPORAL_PAYLOAD_CODEC_KEY:?Set in .env — openssl rand -base64 32}
       MANIFEST_PATH: /app/role/manifest.yaml
       PACKS_DIR: /app/role/packs
-      # Phoenix is deployment infrastructure: in a cluster the deployment
-      # injects the tenant's own collector endpoint. Locally,
-      # optionally point at any Phoenix you run yourself (e.g.
-      # http://host.docker.internal:6006/v1/traces); unset = tracing off.
-      PHOENIX_COLLECTOR_ENDPOINT: ${PHOENIX_COLLECTOR_ENDPOINT:-}
+      # The trace backend is deployment infrastructure: in a cluster the
+      # deployment injects the tenant's own collector endpoint. Locally,
+      # point at any OTLP/HTTP backend — Phoenix you run yourself (e.g.
+      # http://host.docker.internal:6006/v1/traces) or Logfire (full
+      # https://<logfire-host>/v1/traces URL plus the write token in
+      # OTEL_EXPORTER_OTLP_HEADERS, e.g. "Authorization=<token>").
+      # Unset = tracing off. PHOENIX_COLLECTOR_ENDPOINT still works as an alias.
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-${PHOENIX_COLLECTOR_ENDPOINT:-}}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
     volumes:
       - ${ROLE_DIR:-./examples/skeleton}/manifest.yaml:/app/role/manifest.yaml:ro
       - ${ROLE_DIR:-./examples/skeleton}/packs:/app/role/packs:ro
