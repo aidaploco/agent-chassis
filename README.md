@@ -58,7 +58,11 @@ One turn through Lana ("What plan is dana@example.com on?"), seen in [Arize Phoe
 
 ![Phoenix trace of one Lana turn: three guardrail spans, the supervisor, the billing agent and a tool call](docs/images/phoenix-trace.jpg)
 
-The backend is just an OTLP endpoint, so the same traces also go to [Pydantic Logfire](https://pydantic.dev/logfire). Here two turns of one conversation arrive as two traces sharing `session.id` (the support turn's attributes are open). Phoenix-specific attributes such as `openinference.span.kind` show as plain attributes there; see the D19 notes in `DESIGN.md`:
+The backend is just an OTLP endpoint, so the same traces also go to [Pydantic Logfire](https://pydantic.dev/logfire). The same turn has the same tree there: guardrails, supervisor, billing agent and tool call, with token totals rolled up on the root:
+
+![Logfire trace of one Lana turn: three guardrail spans, the supervisor, the billing agent and a tool call](docs/images/logfire-trace.png)
+
+Two turns of one conversation arrive as two traces sharing `session.id` (the support turn's attributes are open). Phoenix-specific attributes such as `openinference.span.kind` show as plain attributes there; see the D19 notes in `DESIGN.md`:
 
 ![Logfire showing two Lana turns as separate traces, with session.id and turn.number in the span attributes](docs/images/logfire-sessions.png)
 
