@@ -356,10 +356,10 @@ external dependency to track, not a chassis defect — recorded here so it
 surfaces early.
 
 **Observability delivery.** Tracing is configured by env var only:
-`PHOENIX_COLLECTOR_ENDPOINT` unset = tracing disabled, set = export, never
-fail hard (`observability.py`). If a deployment later supplies an ingest
-key, the chassis sends it as an OTLP header through the standard
-`OTEL_EXPORTER_OTLP_HEADERS` mechanism — nothing is built until then. The
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` unset = tracing disabled, set = export,
+never fail hard (`observability.py`); `PHOENIX_COLLECTOR_ENDPOINT` remains a
+legacy alias. Backends that need auth (e.g. Logfire's write token) get it as
+an OTLP header via the standard `OTEL_EXPORTER_OTLP_HEADERS` variable. The
 D19 trace shape was checked manually against a live Phoenix: the complete
 chain landed in the role's own trace project — all three guardrail spans as
 children of `conversation.turn` in both turn traces, `session.id` grouping
@@ -426,6 +426,22 @@ harmful respectively — instrumenting the OpenAI client globally would nest a
 duplicate LLM span under every pydantic-ai `chat` span. Packs that call
 providers directly (Lana's LLM guardrails) own their own instrumentation;
 the chassis guardrail span records verdict and input regardless.
+
+**Backend portability (checked against Logfire, 2026-11-12).** The same
+traces were exported to Pydantic Logfire cloud over plain OTLP/HTTP, with
+only the endpoint and a write-token header changed (no `logfire` SDK, so
+Temporal's replay-safe provider stays the global one). Checked manually:
+the tree shape holds (`conversation.turn` root, three guardrail spans, per-
+agent runs with `chat` and tool spans, no interceptor noise), turns are
+separate traces, and `session.id`/`turn.number` arrive as attributes.
+Differences, not defects: `openinference.*` attributes (span kind, project
+name) render as plain attributes in Logfire, so the GUARDRAIL kind and
+Phoenix's Sessions view have no equivalent there; Logfire instead derives
+its agent/LLM views from the GenAI semconv spans pydantic-ai emits. Not
+checked: behaviour across a Temporal replay with Logfire as the backend.
+Hosting differs too: Logfire cloud is one hosted service holding full
+prompts and customer messages, which sits against the per-tenant,
+self-hosted collector model.
 
 ### D20 — Where role artifacts live: split by trust tier, not maturity (2026-07-11)
 

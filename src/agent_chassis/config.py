@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,8 +34,21 @@ class ChassisSettings(BaseSettings):
     manifest_path: str | None = None
     packs_dir: str | None = None
 
-    # OTLP/Phoenix trace collector; unset disables tracing (fail-soft).
-    phoenix_collector_endpoint: str | None = None
+    # OTLP trace backend (Phoenix, Logfire, any OTLP/HTTP collector). Full
+    # traces URL — e.g. http://host:6006/v1/traces. Unset disables tracing
+    # (fail-soft). PHOENIX_COLLECTOR_ENDPOINT is kept as a legacy alias.
+    otlp_traces_endpoint: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "otel_exporter_otlp_traces_endpoint", "phoenix_collector_endpoint"
+        ),
+    )
+    # Standard OTLP auth headers, "k=v,k2=v2" (e.g. Logfire's write token).
+    # Read here, not left to the exporter's own env lookup, so values in
+    # .env work too (pydantic-settings does not export .env to os.environ).
+    otlp_headers: str | None = Field(
+        default=None, validation_alias="otel_exporter_otlp_headers"
+    )
 
     # Memory substrate (D8); unset runs the role memory-less.
     postgres_url: str | None = None

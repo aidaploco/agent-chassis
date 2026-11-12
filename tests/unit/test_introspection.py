@@ -143,5 +143,31 @@ def test_setup_tracing_fail_soft(monkeypatch):
 
     setup_tracing.cache_clear()
     monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
     assert setup_tracing() is False
     setup_tracing.cache_clear()
+
+
+def test_trace_endpoint_accepts_standard_and_legacy_names(monkeypatch):
+    from agent_chassis.config import ChassisSettings
+
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    monkeypatch.setenv("PHOENIX_COLLECTOR_ENDPOINT", "http://phx/v1/traces")
+    assert (
+        ChassisSettings(_env_file=None).otlp_traces_endpoint == "http://phx/v1/traces"
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "https://lf/v1/traces")
+    assert (
+        ChassisSettings(_env_file=None).otlp_traces_endpoint == "https://lf/v1/traces"
+    )
+
+
+def test_parse_headers():
+    from agent_chassis.observability import _parse_headers
+
+    assert _parse_headers(None) is None
+    assert _parse_headers("") is None
+    assert _parse_headers("Authorization=tok=en, x-a=b") == {
+        "Authorization": "tok=en",
+        "x-a": "b",
+    }
