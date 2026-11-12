@@ -437,11 +437,34 @@ separate traces, and `session.id`/`turn.number` arrive as attributes.
 Differences, not defects: `openinference.*` attributes (span kind, project
 name) render as plain attributes in Logfire, so the GUARDRAIL kind and
 Phoenix's Sessions view have no equivalent there; Logfire instead derives
-its agent/LLM views from the GenAI semconv spans pydantic-ai emits. Not
-checked: behaviour across a Temporal replay with Logfire as the backend.
+its agent/LLM views from the GenAI semconv spans pydantic-ai emits.
 Hosting differs too: Logfire cloud is one hosted service holding full
 prompts and customer messages, which sits against the per-tenant,
 self-hosted collector model.
+
+**Replay safety with Logfire as the backend (checked 2026-11-12).** A
+local relay recorded every span the chassis sent, then forwarded each
+request unchanged to Logfire (every batch answered 2xx). Two runs under
+docker-compose, worker killed with SIGKILL:
+
+- *Between turns* (D19's method): 20 spans over two traces sharing
+  `session.id`, 0 duplicate span ids, none of turn 1's spans re-emitted
+  after the restart, and turn 2 resumed with `turn_number: 2`.
+- *Mid-turn*, with the supervisor's model-request activity in flight:
+  Temporal's history shows that activity restarting as attempt 2 after its
+  60s start-to-close timeout and the workflow resuming on the new worker.
+  One trace, 0 duplicate span ids, `invoke_agent` once per agent, and the
+  expected three `chat` spans (the killed attempt's span never ended, so
+  it was never exported; the retry emitted one).
+
+Expected loss, not a defect: spans that end after the exporter's last
+5-second flush and before the kill die with the worker's buffer. In the
+mid-turn run `guardrail off_topic` completed in that window and is absent
+(9 spans, not 10). This is a property of the batch exporter, not of the
+backend or of replay. Not checked: that the worker flushes spans on a
+graceful SIGTERM; how the replayed trace renders in the Logfire UI; and
+replay was inferred from state continuity and the resumed workflow tasks,
+not observed through an explicit marker. One run per scenario.
 
 ### D20 — Where role artifacts live: split by trust tier, not maturity (2026-07-11)
 
