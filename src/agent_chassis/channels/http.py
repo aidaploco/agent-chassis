@@ -76,6 +76,10 @@ async def optional_auth(
 
 
 class ChatRequest(BaseModel):
+    """``sender`` is honoured only in the anonymous local-dev posture. Once
+    HTTP_BEARER_TOKENS is configured the sender is the authenticated
+    principal (D21) and this field is ignored."""
+
     model_config = ConfigDict(extra="forbid")
 
     conversation_id: str
@@ -186,8 +190,12 @@ def create_app(
     ) -> ChatResponse:
         settings = get_settings()
         client = await get_client()
+        # D21: identity is never caller-supplied. With auth configured the
+        # sender is the token's principal; the body field only names the
+        # sender when the endpoint is serving anonymously.
+        sender = principal if settings.http_bearer_tokens else request.sender
         envelope = MessageEnvelope(
-            sender=request.sender,
+            sender=sender,
             tenant=settings.tenant,
             conversation_id=request.conversation_id,
             channel=CHANNEL,
@@ -203,7 +211,7 @@ def create_app(
             attributes={
                 "openinference.span.kind": "CHAIN",
                 "session.id": request.conversation_id,
-                "user.id": request.sender,
+                "user.id": sender,
                 "input.value": request.message,
                 "channel": CHANNEL,
             },
