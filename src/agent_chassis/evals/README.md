@@ -35,7 +35,9 @@ EVAL_JUDGE_MODEL=openai:gpt-5.4-mini-2026-03-17 \
 |---|---|---|
 | `EVAL_JUDGE_MODEL` | `openai:gpt-5.4-mini-2026-03-17` | Model for the quality grader |
 | `EVAL_BEARER_TOKEN` | unset | Bearer token, needed once the Employee has `HTTP_BEARER_TOKENS` set (D21) |
-| `EVAL_CONCURRENCY` | `4` | Cases run at once (each is its own conversation) |
+| `EVAL_CONCURRENCY` | `4` | Runs in flight at once (each is its own conversation) |
+| `EVAL_REPEAT` | `1` | Runs per case. Model behaviour is probabilistic, so a single run is noisy near the margin |
+| `EVAL_MIN_PASS_RATE` | `1.0` | Share of a case's runs that must pass, e.g. `3` runs with `0.66` tolerates one miss |
 
 A case whose HTTP call fails is a failed case (`execution: run failed: …`),
 not an aborted run; a judge reply that cannot be read is a failed `quality`
@@ -44,8 +46,14 @@ grade.
 The cases directory is **required** — the chassis must not default to any one
 role's suite (zero special-casing is enforced by a test).
 
+**CI.** [`.github/workflows/evals.yml`](../../../.github/workflows/evals.yml)
+runs Lana's suite nightly on the real compose stack (3 runs per case, each must
+pass in at least 2 of 3), on demand (`workflow_dispatch`), and when the runner
+or the workflow changes. It needs the `OPENAI_API_KEY` repository secret. It is
+deliberately **not** part of the per-PR `ci-success` gate: it makes paid model
+calls and the result is probabilistic.
+
 **Not built yet (D17):** packs can declare a bundled suite
 (`CapabilityPack.eval_cases_dir()`, collected into
 `ResolvedRole.eval_case_dirs`), but the runner does not read it — it runs only
-the directory it is given — and CI does not run evals, since they need a
-running Employee and make paid model calls.
+the directory it is given — and only Lana has a suite.
