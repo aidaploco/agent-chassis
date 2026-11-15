@@ -34,7 +34,7 @@ audit-log every decision *before* acting on it (D10/D11).
 
 | File | Role |
 |---|---|
-| [`activities.py`](activities.py) | `ChassisActivities`: the vendor-free activities — guardrail checks, history compaction, outcome/escalation/approval emission, memory write-back, outbound delivery. |
+| [`activities.py`](activities.py) | `ChassisActivities`: the vendor-free activities — guardrail checks, history compaction, outcome/escalation/approval emission, approver notices (`notify_approvers`, D10), memory write-back, outbound delivery. |
 | [`models.py`](models.py) | Workflow-internal pydantic types: `ConversationState`/`Params`, `TaskParams`, `ApprovalSignal`/`Record`, `GuardrailCheck`/`Outcome`, the reply/status shapes. |
 | [`runtime_context.py`](runtime_context.py) | `RoleRuntime`: the process-level "this worker hosts exactly one role" (D16) context that workflow code reads (set once at startup, identical across replays). |
 | [`codec.py`](codec.py) | `EncryptionCodec`: AES-256-GCM payload encryption (D9) so Temporal only ever stores ciphertext. |

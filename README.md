@@ -144,6 +144,7 @@ Settings load from environment variables or `.env` ([`config.py`](src/agent_chas
 | `OTEL_EXPORTER_OTLP_HEADERS` | unset | `k=v,k2=v2` auth headers for the backend (e.g. a Logfire write token) |
 | `HTTP_BEARER_TOKENS` | unset | `token:principal,...`. When set, every `/v1/*` call needs a token (D21), except the Slack webhook, which is verified by its signing secret |
 | `SLACK_SIGNING_SECRET`, `SLACK_WEBHOOK_URL` | unset | Verify inbound Slack-shaped webhooks; push replies out |
+| `SLACK_APPROVERS_WEBHOOK_URL`, `SLACK_APPROVERS_CHANNEL` | unset | Where escalation and approval notices go when `escalation.approvers_channel` is `slack`. A separate webhook from the replies one on purpose: a notice carries internal reasons and tool arguments. Unset = logged only, and the worker warns |
 | `CONVERSATION_IDLE_SECONDS` | `3600` | Idle timeout before a conversation completes |
 | `TENANT` | `local` | A correlation label only, never an isolation mechanism (D16) |
 
@@ -196,7 +197,7 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 | **D7** | Manifest schema v1: versioned, `extra="forbid"`, naming-stable identifiers, fail-closed. |
 | **D8** | Memory is retrieval plus write-back behind one interface (pgvector today). |
 | **D9** | Payload encryption fails closed: no codec key, no worker. |
-| **D10 / D11** | Human escalation is a first-class workflow state; one append-only audit log for overrides and approvals. **Not built: the Postgres audit table (the stream is log lines plus memory entries), the wait state for conversations (only tasks wait), and pushing escalations to `approvers_channel`.** |
+| **D10 / D11** | Human escalation is a first-class workflow state; one append-only audit log for overrides and approvals. Escalations, approval pauses and reminders are pushed to a Slack approvers webhook when configured. **Not built: the Postgres audit table (the stream is log lines plus memory entries) and a wait state for conversations (only tasks wait).** |
 | **D12** | Each completed conversation or task emits one versioned `OutcomeEvent`, as a log line and a memory entry. **Not built: the Postgres row and the OTel span event.** |
 | **D13** | Inbound turns are serialized through an in-workflow FIFO queue. |
 | **D14** | Workflow changes ship behind `workflow.patched()`; ledger in `PATCHES.md`. |

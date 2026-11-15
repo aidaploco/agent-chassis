@@ -60,6 +60,14 @@ class ChassisSettings(BaseSettings):
     tenant: str = "local"
     # Push target for the Slack-shaped channel; unset disables the sender.
     slack_webhook_url: str | None = None
+    # Where escalation / approval notices go when escalation.approvers_channel
+    # is "slack" (D10). A SEPARATE webhook from slack_webhook_url on purpose:
+    # that one posts replies where customers read them, and a notice carries
+    # internal reasons and tool arguments. Unset = notices are logged only.
+    slack_approvers_webhook_url: str | None = None
+    # Optional channel override for those notices (omitted from the payload
+    # when unset, so the webhook's own channel applies).
+    slack_approvers_channel: str | None = None
     # Slack inbound HMAC verification (D21); unset allows unsigned webhooks
     # with a loud warning (local dev only).
     slack_signing_secret: str | None = None
