@@ -27,7 +27,10 @@ class EvalCase(BaseModel):
     expected_agent: str | None = None
     expected_tools: list[str] | None = None
     forbidden_tools: list[str] | None = None
-    expected_directive: Literal["reply", "route", "escalate"] | None = None
+    # What the turn ended with, as the channel reports it. "route" is not a
+    # value: routing happens inside a turn and never ends one — assert the
+    # routing with ``expected_agent`` instead.
+    expected_directive: Literal["reply", "escalate"] | None = None
     guardrail_expectations: dict[str, Literal["pass", "trip"]] = Field(
         default_factory=dict
     )
