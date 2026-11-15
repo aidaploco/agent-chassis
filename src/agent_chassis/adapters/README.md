@@ -29,6 +29,6 @@ Could someone write an `openai-agents` adapter that runs a whole turn as a
 single activity behind this same protocol, touching *no* chassis code? Yes —
 and that's the test the seam is designed to pass (D2). The seam is guaranteed
 at the code-and-type level; the honest caveat (also D2) is that with
-`TemporalAgent` the vendor still decides activity boundaries *inside* the
+`TemporalDurability` the vendor still decides activity boundaries *inside* the
 workflow, so "workflows are vendor-free" is true of the code, not of the
 Temporal topology.
