@@ -1,11 +1,13 @@
 # `adapters/pydantic_ai/` — the implemented runtime adapter (D1)
 
 The `RuntimeAdapter` implementation on **pydantic-ai** wrapped by Temporal's
-`TemporalAgent`. This is where an agent turn actually runs.
+the Temporal `TemporalDurability` capability. This is where an agent turn
+actually runs.
 
 ## Key pieces in [`adapter.py`](adapter.py)
 
-- **`PydanticAIAdapter.build(resolved)`** — constructs one `TemporalAgent` per
+- **`PydanticAIAdapter.build(resolved)`** — constructs one durable `Agent` (a
+  regular pydantic-ai `Agent` carrying `capabilities=[TemporalDurability()]`) per
   manifest agent. It wires per-agent model/temperature/token overrides, builds
   a `FunctionToolset` from each capability pack's `ToolSpec`s, wraps
   approval-gated tools in an `ApprovalRequiredToolset` (D10), sets the allowed
@@ -22,7 +24,7 @@ The `RuntimeAdapter` implementation on **pydantic-ai** wrapped by Temporal's
 
 ## Why activity names are load-bearing
 
-`TemporalAgent` derives activity names from **agent names**
+`TemporalDurability` derives activity names from **agent names**
 (`{employee}_{agent}`) and **toolset ids** (capability instance ids). Those are
 frozen once deployed (D1/D7) — which is why the manifest schema constrains
 those identifiers so hard. Rename = new deployment.
@@ -33,7 +35,7 @@ those identifiers so hard. Rename = new deployment.
   `TurnDirective` union as calls to internal `final_result*` tools. The adapter
   filters those out (`_is_directive_call`) so they never pollute `tools_called`,
   the outcome counters, or eval tool grading.
-- **The adapter runs fine outside Temporal.** `TemporalAgent` behaves like a
+- **The adapter runs fine outside Temporal.** `TemporalDurability` is transparent like a
   plain agent when not inside a workflow — which is exactly why unit tests can
   drive it without a server. (The eval runner does not: it goes over HTTP
   against a running Employee.)

@@ -23,6 +23,10 @@ class RoleRuntime:
     push_senders: dict[str, OutboundSender] = field(default_factory=dict)
     # Bound memory substrate (D8); None when the role runs memory-less.
     substrate: MemorySubstrate | None = None
+    # Delivers escalation / approval notices to escalation.approvers_channel
+    # (D10). None when that channel has no push path (e.g. http, which is
+    # pull-based): notices are then logged only.
+    approvers_sender: OutboundSender | None = None
 
 
 _runtime: RoleRuntime | None = None
