@@ -63,7 +63,10 @@ def _build():  # pragma: no cover - deployment composition
         setup_tracing()
     get_client = default_client_provider()
     application = create_app(get_client, resolved=resolved, get_substrate=get_substrate)
-    application.include_router(create_router(get_client))
+    # The Slack webhook exists only for roles that enable the channel. If the
+    # role could not be loaded we cannot tell, so the route stays up.
+    if resolved is None or "slack" in resolved.manifest.channels:
+        application.include_router(create_router(get_client))
     return application
 
 

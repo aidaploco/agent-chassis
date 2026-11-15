@@ -198,6 +198,7 @@ def _build_runtime(escalation: dict | None = None, push_sender=None) -> RoleRunt
 
     data = yaml.safe_load((FIXTURES / "lana.yaml").read_text())
     data["capabilities"][0]["config"] = {}
+    data["kpis"]["task_types"] = ["conversation", "daily_check", "double_check"]
     data["guardrails"] = [{"pack": "block_word", "config": {}}]
     data["channels"] = ["http", "slack"]
     data["tasks"] = [

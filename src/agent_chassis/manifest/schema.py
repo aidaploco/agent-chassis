@@ -22,6 +22,13 @@ from agent_chassis.contracts.history import HistoryBudget
 Identifier = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{2,40}$")]
 """Naming-stable identifier: feeds Temporal activity names, frozen per deployment."""
 
+Channel = Literal["http", "slack"]
+"""The channel adapters the chassis ships. A manifest naming anything else
+is a typo, not a channel — fail closed (D7)."""
+
+CONVERSATION_TASK_TYPE = "conversation"
+"""The ``task_type`` every ConversationWorkflow outcome carries."""
+
 
 class PersonaSpec(BaseModel):
     """How the Employee presents itself to users.
@@ -179,15 +186,17 @@ class MemorySpec(BaseModel):
     """Which memory substrate backs this Employee (D8).
 
     Fields:
-        substrate: The substrate name — ``pgvector`` in V1, or ``none`` to run
-            memory-less. (A future shared knowledge substrate plugs in here.)
+        substrate: ``pgvector``, or ``none`` to run memory-less. Any other
+            value is rejected: a misspelled substrate used to run the role
+            memory-less without a word. (A future shared knowledge substrate
+            adds its name here.)
         collection: The namespace within the substrate that isolates this
             Employee's entries.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    substrate: Identifier
+    substrate: Literal["pgvector", "none"]
     collection: Identifier
 
 
@@ -195,8 +204,10 @@ class EscalationSpec(BaseModel):
     """Human-escalation and approval policy (D10).
 
     Fields:
-        approvers_channel: Where escalation requests surface. Must be one of
-            the enabled ``channels``.
+        approvers_channel: Where escalation requests are meant to surface.
+            Must be one of the enabled ``channels``. Declarative only in V1:
+            escalations and reminders are written to the worker log and the
+            memory substrate, and are not yet pushed to this channel.
         remind_after: How long to wait before re-nudging approvers (an ISO-8601
             duration in YAML, e.g. ``PT4H``).
         expire_after: How long before an undecided approval auto-denies. Must
@@ -225,8 +236,9 @@ class KpiSpec(BaseModel):
 
     Fields:
         task_types: The ``task_type`` values that appear on this role's
-            ``OutcomeEvent``s (e.g. ``conversation``, or a task name like
-            ``daily_ops_report``). At least one required.
+            ``OutcomeEvent``s: ``conversation`` and/or the names of declared
+            ``tasks``. At least one required. Cross-checked against ``tasks``
+            — every task must be listed, and nothing else may be.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -285,7 +297,8 @@ class RoleManifest(BaseModel):
         runtime: Model tier, sampling, token caps, history budget (``RuntimeSpec``).
         capabilities: Capability packs this role composes (``CapabilityRef``).
         routing: The agent graph the chassis walks (``RoutingSpec``).
-        channels: Enabled channel adapters — a subset of the registered ones.
+        channels: Enabled channel adapters (``http``, ``slack``). The Slack
+            webhook route and push sender exist only when ``slack`` is listed.
         guardrails: Guardrail packs and their (bounds-checked) config.
         memory: Which memory substrate backs the role (``MemorySpec``).
         escalation: Human-escalation and approval policy (``EscalationSpec``).
@@ -301,7 +314,7 @@ class RoleManifest(BaseModel):
     runtime: RuntimeSpec
     capabilities: list[CapabilityRef] = Field(default_factory=list)
     routing: RoutingSpec
-    channels: list[Identifier] = Field(min_length=1)
+    channels: list[Channel] = Field(min_length=1)
     guardrails: list[GuardrailRef] = Field(default_factory=list)
     memory: MemorySpec
     escalation: EscalationSpec
@@ -351,6 +364,19 @@ class RoleManifest(BaseModel):
                     f"task {task.name!r} references undeclared agent {task.agent!r}"
                 )
         declared_tasks = set(task_names)
+        emitted = set(self.kpis.task_types)
+        unlisted = sorted(declared_tasks - emitted)
+        if unlisted:
+            raise ValueError(
+                f"kpis.task_types is missing declared tasks {unlisted} — each"
+                " task emits an outcome event with its name as task_type"
+            )
+        unknown_types = sorted(emitted - declared_tasks - {CONVERSATION_TASK_TYPE})
+        if unknown_types:
+            raise ValueError(
+                f"kpis.task_types lists {unknown_types}, which no workflow emits"
+                f" (expected {CONVERSATION_TASK_TYPE!r} or a declared task name)"
+            )
         for schedule in self.schedules:
             if schedule.task not in declared_tasks:
                 raise ValueError(
