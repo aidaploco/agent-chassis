@@ -10,7 +10,7 @@ This is how "does this role still behave correctly" becomes a CI gate.
   **multi-turn from day one**: `messages` is the conversation so far and its
   last message (which must be from the user) is the turn under test. A case can
   assert `expected_agent`, `expected_tools` / `forbidden_tools`,
-  `expected_directive`, per-guardrail `pass`/`trip` expectations, and a
+  `expected_directive` (`reply` / `escalate`), per-guardrail `pass`/`trip` expectations, and a
   free-text `quality_prompt` for the judge.
 - [`graders.py`](graders.py) — deterministic structural graders (agent, tools,
   directive, guardrails) over an `EvalExecution` — a normalized summary of what
@@ -31,7 +31,21 @@ EVAL_JUDGE_MODEL=openai:gpt-5.4-mini-2026-03-17 \
   python -m agent_chassis.evals http://localhost:8001 examples/lana/evals
 ```
 
+| Variable | Default | Purpose |
+|---|---|---|
+| `EVAL_JUDGE_MODEL` | `openai:gpt-5.4-mini-2026-03-17` | Model for the quality grader |
+| `EVAL_BEARER_TOKEN` | unset | Bearer token, needed once the Employee has `HTTP_BEARER_TOKENS` set (D21) |
+| `EVAL_CONCURRENCY` | `4` | Cases run at once (each is its own conversation) |
+
+A case whose HTTP call fails is a failed case (`execution: run failed: …`),
+not an aborted run; a judge reply that cannot be read is a failed `quality`
+grade.
+
 The cases directory is **required** — the chassis must not default to any one
-role's suite (zero special-casing is enforced by a test). A role's suite is the
-union of its packs' bundled suites plus role-level cases; CI gates on the
-per-role pass rate.
+role's suite (zero special-casing is enforced by a test).
+
+**Not built yet (D17):** packs can declare a bundled suite
+(`CapabilityPack.eval_cases_dir()`, collected into
+`ResolvedRole.eval_case_dirs`), but the runner does not read it — it runs only
+the directory it is given — and CI does not run evals, since they need a
+running Employee and make paid model calls.

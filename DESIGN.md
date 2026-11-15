@@ -329,6 +329,12 @@ scripts.
 - **Ownership:** every capability pack bundles its own suite (regression tests
   travel with the capability); a role's suite = union of its packs'
   suites + role-level cases. CI gates on per-role pass rate.
+- **Amended 2026-11-14:** `expected_directive` accepts `reply` / `escalate`
+  only. `route` was in the schema but could never pass: a route happens
+  inside a turn and never ends one, so the channel never reports it. Routing
+  is asserted with `expected_agent`. The pack-bundled suites and the CI gate
+  in the bullet above are not built: the runner grades the one directory it
+  is given.
 
 **Rejected: bespoke per-app harness (prototype pattern).** Single-turn
 blind, non-reusable, judge under-informed — the exact gaps found in the
