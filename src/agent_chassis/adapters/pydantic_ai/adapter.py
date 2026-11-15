@@ -9,6 +9,7 @@ from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelRequest,
     ModelResponse,
+    TextPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
@@ -262,7 +263,7 @@ class PydanticAIAdapter:
                 ]
             )
         elif isinstance(output, str):
-            directive = Reply(content=output)
+            directive = Reply(content=_collapse_repeated_text(result.response, output))
         else:
             directive = output
         return TurnResult(
@@ -334,6 +335,23 @@ def _load_messages(history: ConversationHistory) -> list[ModelMessage]:
     if not history.entries:
         return []
     return ModelMessagesTypeAdapter.validate_python(history.entries)
+
+
+def _collapse_repeated_text(response: ModelResponse, output: str) -> str:
+    """The reply text, without a model's repeated copy of itself.
+
+    Some models return the same sentence as two text parts in one response,
+    and the runtime joins the parts, so a customer reads "What prompted the
+    decision?What prompted the decision?". Observed live with gpt-5.4-mini on
+    the cancellation flow (12 of 12 doubled before the billing prompt
+    change, 5 of 12 after; none on tool-answer flows). Only the unambiguous
+    case is collapsed — every text part identical — so genuinely different
+    parts are still joined.
+    """
+    texts = [part.content for part in response.parts if isinstance(part, TextPart)]
+    if len(texts) > 1 and len({text.strip() for text in texts}) == 1:
+        return texts[0]
+    return output
 
 
 _COMPACTED = re.compile(r"\[(\d+) earlier turns compacted\]")
