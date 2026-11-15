@@ -99,3 +99,32 @@ def test_non_mapping_root_rejected(tmp_path):
     path.write_text("- just\n- a\n- list\n")
     with pytest.raises(ManifestError, match="root must be a mapping"):
         load_manifest(path)
+
+
+def test_unknown_channel_rejected(tmp_path, lana):
+    lana["channels"] = ["http", "slak"]
+    with pytest.raises(ManifestError, match=r"channels\.1"):
+        load_manifest(_write(tmp_path, lana))
+
+
+def test_unknown_memory_substrate_rejected(tmp_path, lana):
+    """A misspelled substrate used to run the role memory-less, silently."""
+    lana["memory"]["substrate"] = "pgvectr"
+    with pytest.raises(ManifestError, match=r"memory\.substrate"):
+        load_manifest(_write(tmp_path, lana))
+    lana["memory"]["substrate"] = "none"
+    assert load_manifest(_write(tmp_path, lana)).memory.substrate == "none"
+
+
+def test_declared_tasks_must_be_listed_in_kpis(tmp_path, lana):
+    lana["tasks"] = [{"name": "daily_check", "agent": "billing", "prompt": "Check."}]
+    with pytest.raises(ManifestError, match="missing declared tasks"):
+        load_manifest(_write(tmp_path, lana))
+    lana["kpis"]["task_types"].append("daily_check")
+    assert load_manifest(_write(tmp_path, lana)).kpis.task_types[-1] == "daily_check"
+
+
+def test_kpis_cannot_list_task_types_nothing_emits(tmp_path, lana):
+    lana["kpis"]["task_types"] = ["conversation", "weekly_digest"]
+    with pytest.raises(ManifestError, match="no workflow emits"):
+        load_manifest(_write(tmp_path, lana))

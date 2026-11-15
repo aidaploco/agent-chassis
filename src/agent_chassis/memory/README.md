@@ -36,7 +36,7 @@ default (`user` / `unknown`) — unknown origin is never promoted.
 
 ## Running memory-less
 
-Memory is optional. If the manifest's `memory.substrate` isn't `pgvector`, or
+Memory is optional. If the manifest's `memory.substrate` is `none`, or
 `POSTGRES_URL` is unset, the role runs without memory: `record_memory` returns a
 polite "not available", and write-backs no-op. The substrate's unavailability
 must never fail a workflow.

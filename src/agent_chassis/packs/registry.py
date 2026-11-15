@@ -1,4 +1,6 @@
 import importlib.util
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -53,6 +55,28 @@ class ResolvedRole:
     guardrails: list[ResolvedGuardrail]
     overrides: list[OverrideRecord] = field(default_factory=list)
     eval_case_dirs: list[Path] = field(default_factory=list)
+
+    def missing_secrets(
+        self, environ: Mapping[str, str] | None = None
+    ) -> dict[str, list[str]]:
+        """Secrets the composed capability packs declare but the environment
+        does not provide, keyed by capability instance id.
+
+        ``required_secrets`` used to be display-only (it showed in /v1/self),
+        so a role could start with a pack that was certain to fail on first
+        use. The worker — the process that runs tools — refuses to start.
+        """
+        environ = os.environ if environ is None else environ
+        missing: dict[str, list[str]] = {}
+        for instance_id, capability in self.capabilities.items():
+            absent = [
+                name
+                for name in capability.pack.required_secrets
+                if not environ.get(name)
+            ]
+            if absent:
+                missing[instance_id] = absent
+        return missing
 
 
 def _validate_config(

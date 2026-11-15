@@ -49,7 +49,10 @@ class CapabilityPack(ABC):
     # hosting this pack. Used when composing OTHER agents' routing blocks.
     description: ClassVar[str] = ""
     config_model: ClassVar[type[PackConfig]] = PackConfig
+    # Env var names the pack's tools need. The worker refuses to start when
+    # a composed pack's secret is unset; values never appear in /v1/self.
     required_secrets: ClassVar[tuple[str, ...]] = ()
+    # Informational: surfaced in /v1/self, not enforced by the chassis.
     required_scopes: ClassVar[tuple[str, ...]] = ()
 
     @abstractmethod

@@ -49,6 +49,13 @@ def build_runtime(settings: ChassisSettings) -> RoleRuntime:
             override.value,
             override.default,
         )
+    absent = resolved.missing_secrets()
+    if absent:
+        raise RuntimeError(
+            "capability packs require secrets that are not set in the"
+            f" environment: {absent} — the worker will not start with tools"
+            " that are certain to fail"
+        )
     adapter = PydanticAIAdapter()
     push_senders = {}
     if settings.slack_webhook_url and "slack" in manifest.channels:

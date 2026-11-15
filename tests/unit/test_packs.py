@@ -164,3 +164,12 @@ def test_entry_point_discovery(monkeypatch):
     r = PackRegistry()
     r.discover()
     assert "billing" in r._capabilities
+
+
+def test_missing_secrets_are_reported_per_capability(registry, lana_manifest):
+    resolved = registry.resolve(lana_manifest)
+    assert resolved.missing_secrets(environ={}) == {"billing": ["BILLING_API_KEY"]}
+    assert resolved.missing_secrets(environ={"BILLING_API_KEY": ""}) == {
+        "billing": ["BILLING_API_KEY"]
+    }
+    assert resolved.missing_secrets(environ={"BILLING_API_KEY": "k"}) == {}
