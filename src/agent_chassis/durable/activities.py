@@ -53,8 +53,13 @@ def render_notice(notice: ApproverNotice) -> str:
         else f"[{notice.employee}] needs approval to continue"
     )
     lines = [heading, f"Task run: {notice.subject_id}"]
+    # A reminder is a nudge: the original notice already carried the arguments,
+    # which can be long (a whole report body), so repeat only what is pending.
     lines += [
-        f"- {item.tool} {item.args}  (call {item.call_id})" for item in notice.pending
+        f"- {item.tool}  (call {item.call_id})"
+        if notice.kind == "reminder"
+        else f"- {item.tool} {item.args}  (call {item.call_id})"
+        for item in notice.pending
     ]
     lines.append(
         'Decide with POST /v1/approvals {"workflow_id": "'

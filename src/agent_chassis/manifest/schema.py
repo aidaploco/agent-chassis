@@ -204,10 +204,11 @@ class EscalationSpec(BaseModel):
     """Human-escalation and approval policy (D10).
 
     Fields:
-        approvers_channel: Where escalation requests are meant to surface.
-            Must be one of the enabled ``channels``. Declarative only in V1:
-            escalations and reminders are written to the worker log and the
-            memory substrate, and are not yet pushed to this channel.
+        approvers_channel: Where escalations, approval requests and reminders
+            are pushed. Must be one of the enabled ``channels``. ``slack``
+            pushes them to ``SLACK_APPROVERS_WEBHOOK_URL``; ``http`` is
+            pull-based (nothing to push to), so they are only logged and
+            approvers poll ``GET /v1/tasks/{id}`` — the worker warns at start.
         remind_after: How long to wait before re-nudging approvers (an ISO-8601
             duration in YAML, e.g. ``PT4H``).
         expire_after: How long before an undecided approval auto-denies. Must

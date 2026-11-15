@@ -52,9 +52,14 @@ def test_approval_notice_lists_calls_and_how_to_decide():
     assert '"workflow_id": "task-abc"' in text and "/v1/approvals" in text
 
 
-def test_reminder_notice_is_labelled_as_one():
-    item = ApprovalItem(call_id="c", tool="t", args="{}")
-    assert "reminder" in render_notice(_notice(kind="reminder", pending=[item]))
+def test_reminder_is_a_short_nudge_without_the_arguments():
+    item = ApprovalItem(call_id="c1", tool="publish_report", args="X" * 400)
+    text = render_notice(
+        _notice(kind="reminder", subject_id="task-abc", pending=[item])
+    )
+    assert "reminder" in text and "- publish_report  (call c1)" in text
+    assert "XXXX" not in text  # the first notice already carried them
+    assert '"workflow_id": "task-abc"' in text  # still says how to decide
 
 
 def _deliver(sender: SlackOutboundSender, conversation_id: str) -> dict:
