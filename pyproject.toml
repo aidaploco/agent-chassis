@@ -5,9 +5,17 @@ description = "Runtime chassis for role-based AI Employees: role manifests + cap
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    # anthropic, openai, opentelemetry-api and temporalio are imported by
+    # chassis code directly (utils/llm.py, memory/embedder.py, durable/,
+    # observability.py). They used to arrive only through pydantic-ai-slim's
+    # extras, so the vendor-free side of the seam (D2) depended on the
+    # vendor's dependency list to be installable.
+    "anthropic>=0.116.0",
     "cryptography>=49.0.0",
     "fastapi>=0.139.0",
     "httpx>=0.28.1",
+    "openai>=2.44.0",
+    "opentelemetry-api>=1.43.0",
     "opentelemetry-exporter-otlp-proto-http>=1.43.0",
     "opentelemetry-sdk>=1.43.0",
     "pgvector>=0.3",
@@ -16,6 +24,7 @@ dependencies = [
     "pydantic-ai-slim[anthropic,openai,temporal]>=2.7.0",
     "pydantic-settings>=2.13",
     "pyyaml>=6.0.3",
+    "temporalio>=1.30.0",
     "uvicorn>=0.51.0",
 ]
 
