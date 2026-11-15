@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -16,13 +17,41 @@ from agent_chassis.utils.logger import get_logger
 
 _logger = get_logger(__name__)
 
+# Reciprocal-rank-fusion constant (the conventional 60): each arm contributes
+# 1 / (_RRF_K + rank) per hit, so no arm can crowd the other out of the page.
+_RRF_K = 60
+_MAX_KEYWORD_TERMS = 8
+_MIN_TERM_LENGTH = 3
+
+
+def _keyword_patterns(query: str) -> list[str]:
+    """ILIKE patterns for the keyword arm: one per distinct query term.
+
+    Matching the whole query as a single substring only ever hit when the
+    query appeared verbatim in an entry. LIKE wildcards in the query are
+    escaped so "100%" means the literal text.
+    """
+    terms: list[str] = []
+    for raw in re.split(r"\s+", query.lower()):
+        term = raw.strip(".,;:!?\"'()[]{}")
+        if len(term) >= _MIN_TERM_LENGTH and term not in terms:
+            terms.append(term)
+    if not terms and query.strip():
+        terms = [query.strip().lower()]
+    return [
+        "%" + re.sub(r"([\\%_])", r"\\\1", term) + "%"
+        for term in terms[:_MAX_KEYWORD_TERMS]
+    ]
+
 
 class PgVectorSubstrate:
     """MemorySubstrate over Postgres + pgvector.
 
     Retrieval merges two arms: cosine similarity over embeddings (semantic)
-    and ILIKE match (keyword), deduplicated, semantic-first. One table shared
-    by all collections; the collection column namespaces employees.
+    and per-term ILIKE match (keyword), fused by reciprocal rank so a hit
+    found by both arms ranks first and neither arm can crowd the other out.
+    One table shared by all collections; the collection column namespaces
+    employees.
     """
 
     def __init__(
@@ -123,12 +152,13 @@ class PgVectorSubstrate:
     ) -> list[MemoryEntry]:
         embedding = await self._embedder.embed(query)
         kind_clause = "AND kind = ANY(%s)" if kinds else ""
+        patterns = _keyword_patterns(query)
 
         async with self._pool.connection() as conn:
             semantic_params: list = [embedding, self._collection]
             if kinds:
                 semantic_params.append(kinds)
-            semantic_params.append(limit)
+            semantic_params.extend([embedding, limit])
             semantic = await (
                 await conn.execute(
                     f"""
@@ -137,47 +167,65 @@ class PgVectorSubstrate:
                            1 - (embedding <=> %s::vector) AS score
                     FROM {self._table}
                     WHERE collection = %s {kind_clause}
-                    ORDER BY score DESC
+                    ORDER BY embedding <=> %s::vector
                     LIMIT %s
                     """,
                     semantic_params,
                 )
             ).fetchall()
 
-            keyword_params: list = [self._collection, f"%{query}%"]
-            if kinds:
-                keyword_params.append(kinds)
-            keyword_params.append(limit)
-            keyword = await (
-                await conn.execute(
-                    f"""
-                    SELECT id, collection, kind, content, metadata, created_at,
-                           source, author,
-                           NULL AS score
-                    FROM {self._table}
-                    WHERE collection = %s AND content ILIKE %s {kind_clause}
-                    LIMIT %s
-                    """,
-                    keyword_params,
-                )
-            ).fetchall()
+            keyword: list = []
+            if patterns:
+                keyword_params: list = [patterns, self._collection, patterns]
+                if kinds:
+                    keyword_params.append(kinds)
+                keyword_params.append(limit)
+                keyword = await (
+                    await conn.execute(
+                        f"""
+                        SELECT id, collection, kind, content, metadata,
+                               created_at, source, author,
+                               NULL AS score,
+                               (SELECT count(*) FROM unnest(%s::text[]) AS p
+                                 WHERE content ILIKE p) AS matched
+                        FROM {self._table}
+                        WHERE collection = %s AND content ILIKE ANY(%s)
+                              {kind_clause}
+                        ORDER BY matched DESC, created_at DESC
+                        LIMIT %s
+                        """,
+                        keyword_params,
+                    )
+                ).fetchall()
 
-        entries: dict[str, MemoryEntry] = {}
-        for row in [*semantic, *keyword]:
-            entry_id = str(row[0])
-            if entry_id not in entries:
-                entries[entry_id] = MemoryEntry(
-                    id=entry_id,
-                    collection=row[1],
-                    kind=row[2],
-                    content=row[3],
-                    metadata=row[4] or {},
-                    created_at=row[5],
-                    source=row[6],
-                    author=row[7],
-                    score=float(row[8]) if row[8] is not None else None,
-                )
-        return list(entries.values())[:limit]
+        # Reciprocal rank fusion. The old merge appended keyword rows after a
+        # semantic arm that always filled `limit`, then truncated — so keyword
+        # hits never surfaced once a collection held `limit` entries.
+        rows: dict[str, tuple] = {}
+        fused: dict[str, float] = {}
+        for arm in (semantic, keyword):
+            for rank, row in enumerate(arm, start=1):
+                entry_id = str(row[0])
+                rows.setdefault(entry_id, row)  # keeps the semantic score
+                fused[entry_id] = fused.get(entry_id, 0.0) + 1 / (_RRF_K + rank)
+        keyword_ids = {str(row[0]) for row in keyword}
+        # Ties go to literal term matches — the rarer, more specific signal.
+        ordered = sorted(fused, key=lambda i: (-fused[i], i not in keyword_ids))
+        return [
+            MemoryEntry(
+                id=entry_id,
+                collection=row[1],
+                kind=row[2],
+                content=row[3],
+                metadata=row[4] or {},
+                created_at=row[5],
+                source=row[6],
+                author=row[7],
+                score=float(row[8]) if row[8] is not None else None,
+            )
+            for entry_id in ordered[:limit]
+            for row in (rows[entry_id],)
+        ]
 
     async def recent(
         self, kinds: list[str] | None = None, limit: int = 5
