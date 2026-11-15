@@ -21,7 +21,13 @@ class ConversationHistory(BaseModel):
 
 
 class HistoryBudget(BaseModel):
-    """Compaction policy from the role manifest (``runtime.history_budget``)."""
+    """Compaction policy from the role manifest (``runtime.history_budget``).
+
+    ``max_turns`` is how many user turns compaction keeps. The chassis
+    compacts once history holds a quarter more than that, so history stays
+    within 1.25x ``max_turns``. ``summary_max_tokens`` is reserved for
+    model-written summaries and is not used by the V1 adapter.
+    """
 
     model_config = ConfigDict(extra="forbid")
 

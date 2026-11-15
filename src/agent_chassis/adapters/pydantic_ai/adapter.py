@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -67,12 +68,25 @@ class RoleDeps:
     """Per-run dependencies injected into dynamic instructions."""
 
     routing_note: str | None = None
+    history_summary: str | None = None
 
 
 def _routing_note(ctx: RunContext[RoleDeps]) -> str:
     if ctx.deps.routing_note is None:
         return ""
     return f"Internal routing context (not from the user): {ctx.deps.routing_note}"
+
+
+def _history_summary(ctx: RunContext[RoleDeps]) -> str:
+    """Tell the agent its view of the conversation is truncated — otherwise
+    compaction silently removes context and the agent cannot know to ask."""
+    if not ctx.deps.history_summary:
+        return ""
+    return (
+        "Earlier parts of this conversation are no longer visible to you:"
+        f" {ctx.deps.history_summary}. If the user refers to something you"
+        " cannot see, ask them to restate it rather than guessing."
+    )
 
 
 @dataclass
@@ -189,6 +203,7 @@ class PydanticAIAdapter:
                 instructions=[
                     compose_instructions(resolved, agent_name),
                     _routing_note,
+                    _history_summary,
                 ],
                 output_type=output_type,
                 model_settings=ModelSettings(
@@ -224,7 +239,10 @@ class PydanticAIAdapter:
             user_prompt,
             message_history=message_history or None,
             deferred_tool_results=deferred_results,
-            deps=RoleDeps(routing_note=request.routing_note),
+            deps=RoleDeps(
+                routing_note=request.routing_note,
+                history_summary=request.history.summary,
+            ),
         )
 
         output = result.output
@@ -266,23 +284,20 @@ class PydanticAIAdapter:
         budget: HistoryBudget,
     ) -> ConversationHistory:
         """V1 compaction: keep the last ``max_turns`` user turns, fold the
-        rest into a plain-text summary marker. Model-written summaries (using
-        ``summary_max_tokens``) are a planned upgrade once the walking
-        skeleton is green."""
+        rest into a plain-text marker that ``run_turn`` shows the agent.
+        Model-written summaries (using ``summary_max_tokens``) are a planned
+        upgrade; that field is accepted but not used yet."""
         messages = _load_messages(history)
-        boundaries = [
-            index
-            for index, message in enumerate(messages)
-            if isinstance(message, ModelRequest)
-            and any(isinstance(part, UserPromptPart) for part in message.parts)
-        ]
+        boundaries = _turn_starts(messages)
         if len(boundaries) <= budget.max_turns:
             return history
 
         cut = boundaries[len(boundaries) - budget.max_turns]
         dropped = len(boundaries) - budget.max_turns
-        note = f"[{dropped} earlier turns compacted]"
-        summary = f"{history.summary}\n{note}" if history.summary else note
+        # One running total, not one marker line per compaction: the summary
+        # is carried in workflow state and must not grow with the conversation.
+        already = sum(int(n) for n in _COMPACTED.findall(history.summary or ""))
+        summary = f"[{already + dropped} earlier turns compacted]"
         return ConversationHistory(
             runtime=RUNTIME_ID,
             entries=ModelMessagesTypeAdapter.dump_python(messages[cut:], mode="json"),
@@ -319,6 +334,37 @@ def _load_messages(history: ConversationHistory) -> list[ModelMessage]:
     if not history.entries:
         return []
     return ModelMessagesTypeAdapter.validate_python(history.entries)
+
+
+_COMPACTED = re.compile(r"\[(\d+) earlier turns compacted\]")
+
+
+def _turn_starts(messages: list[ModelMessage]) -> list[int]:
+    """Index of the request that opens each user turn.
+
+    A routed turn (D4) re-sends the same user message to the target agent,
+    so it holds several user-prompt requests. Counting each of them as a
+    turn made ``max_turns`` mean "requests" for multi-agent roles — a
+    supervisor-fronted role kept half the turns its manifest asked for. A
+    user-prompt request that follows a route directive continues the turn.
+    """
+    starts: list[int] = []
+    routed = False
+    for index, message in enumerate(messages):
+        if isinstance(message, ModelResponse):
+            routed = any(
+                isinstance(part, ToolCallPart) and _is_route_call(part.tool_name)
+                for part in message.parts
+            )
+        elif any(isinstance(part, UserPromptPart) for part in message.parts):
+            if not routed:
+                starts.append(index)
+            routed = False
+    return starts
+
+
+def _is_route_call(tool_name: str) -> bool:
+    return _is_directive_call(tool_name) and "route" in tool_name.lower()
 
 
 def _is_directive_call(tool_name: str) -> bool:
