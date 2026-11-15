@@ -1,5 +1,7 @@
 """Eval runner (D17) against a stubbed Employee: no server, no model."""
 
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -196,3 +198,32 @@ async def test_repeat_still_fails_a_broken_case(tmp_path, monkeypatch, capsys):
     assert "FAIL flaky (1/3)" in out and "needs 66% of runs, got 33%" in out
     assert "agent: wrong agent" in out  # why the failing runs failed
     assert "1/2 cases passed" in out
+
+
+async def test_the_nightly_workflow_tolerates_one_miss_in_three(
+    tmp_path, monkeypatch, capsys
+):
+    """The threshold must be read from the workflow itself: it was once 0.67,
+    which fails a case that passes 2 of 3 (0.667 < 0.67), so the job demanded
+    3 of 3 while every doc said 2 of 3."""
+    import yaml
+
+    workflow = yaml.safe_load(
+        (Path(__file__).parents[2] / ".github" / "workflows" / "evals.yml").read_text()
+    )
+    step = next(
+        s
+        for s in workflow["jobs"]["lana"]["steps"]
+        if s.get("name") == "Run the eval suite"
+    )
+    repeat = int(
+        str(workflow[True]["workflow_dispatch"]["inputs"]["repeat"]["default"])
+    )
+    rate = float(step["env"]["EVAL_MIN_PASS_RATE"])
+    assert repeat == 3
+
+    _scripted(monkeypatch, {"steady": [True] * 3, "flaky": [True, False, True]})
+    code = await runner.run_suite(
+        _suite_cases(tmp_path), "http://x", None, repeat=repeat, min_pass_rate=rate
+    )
+    assert code == 0, capsys.readouterr().out

@@ -37,7 +37,7 @@ EVAL_JUDGE_MODEL=openai:gpt-5.4-mini-2026-03-17 \
 | `EVAL_BEARER_TOKEN` | unset | Bearer token, needed once the Employee has `HTTP_BEARER_TOKENS` set (D21) |
 | `EVAL_CONCURRENCY` | `4` | Runs in flight at once (each is its own conversation) |
 | `EVAL_REPEAT` | `1` | Runs per case. Model behaviour is probabilistic, so a single run is noisy near the margin |
-| `EVAL_MIN_PASS_RATE` | `1.0` | Share of a case's runs that must pass, e.g. `3` runs with `0.67` tolerates one miss |
+| `EVAL_MIN_PASS_RATE` | `1.0` | Share of a case's runs that must pass, e.g. `3` runs with `0.66` tolerates one miss |
 
 A case whose HTTP call fails is a failed case (`execution: run failed: …`),
 not an aborted run; a judge reply that cannot be read is a failed `quality`

@@ -75,7 +75,7 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           EVAL_REPEAT: ${{ inputs.repeat || '3' }}
-          EVAL_MIN_PASS_RATE: "0.67" # 2 of 3
+          EVAL_MIN_PASS_RATE: "0.66" # 2 of 3 (0.67 would demand 3 of 3: 2/3 < 0.67)
           EVAL_CONCURRENCY: "4"
         run: |
           uv run python -m agent_chassis.evals http://localhost:8001 examples/lana/evals | tee eval.txt
