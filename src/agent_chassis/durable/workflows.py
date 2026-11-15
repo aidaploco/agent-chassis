@@ -1,4 +1,3 @@
-import asyncio
 from dataclasses import dataclass
 from datetime import UTC, timedelta
 
@@ -24,9 +23,9 @@ with workflow.unsafe.imports_passed_through():
         TurnRequest,
     )
     from agent_chassis.durable.models import (
-        ApproverNotice,
         ApprovalRecord,
         ApprovalSignal,
+        ApproverNotice,
         ConversationParams,
         ConversationState,
         EscalationRecord,
@@ -207,7 +206,7 @@ class ConversationWorkflow:
                 )
                 try:
                     item.reply = await self._process(item.envelope)
-                except Exception as exc:  # surfaced to the update handler
+                except Exception as exc:  # noqa: BLE001 - surfaced to the update handler
                     item.error = str(exc)
                 finally:
                     if token is not None:
@@ -232,7 +231,7 @@ class ConversationWorkflow:
                     lambda: bool(self._queue) or self._should_roll_over(),
                     timeout=remaining,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     @workflow.update
@@ -716,7 +715,7 @@ class TaskWorkflow:
                 await workflow.wait_condition(
                     lambda: bool(self._signals), timeout=max(timeout, 0.1)
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if workflow.now() >= next_reminder:
                     # Reminders go where the original pause went — the
                     # escalation feed — not just a worker log line nobody

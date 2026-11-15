@@ -27,7 +27,7 @@ _MIN_TERM_LENGTH = 3
 # about the refund" would surface recent entries containing "the" ahead of
 # the semantically relevant ones.
 _STOP_WORDS = frozenset(
-    "about after all also and any are because been before but can could did "
+    "about after all also and any are because been before but can could did "  # noqa: SIM905 - a word list reads better as one string
     "does doing done for from had has have her him his how into its just may "
     "might more most must not now off once only other our out over she should "
     "than that the their them then there these they this those too under "
@@ -284,5 +284,5 @@ class PgVectorSubstrate:
             async with self._pool.connection() as conn:
                 await conn.execute("SELECT 1")
             return True
-        except Exception:
+        except Exception:  # noqa: BLE001 - a health check reports, it never raises
             return False

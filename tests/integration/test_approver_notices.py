@@ -128,7 +128,7 @@ async def test_conversation_escalation_notifies_approvers_not_the_customer(notif
 
 
 async def test_task_pause_and_reminders_notify_approvers(notified):
-    client, task_queue, activities = notified
+    client, task_queue, _ = notified
     handle = await client.start_workflow(
         TaskWorkflow.run,
         TaskParams(task="daily_check", tenant="acme"),

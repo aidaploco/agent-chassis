@@ -50,7 +50,7 @@ async def build_self_description(
         try:
             entries = await substrate.recent(kinds=["outcome"], limit=recent_limit)
             recent = [f"{e.created_at:%Y-%m-%d %H:%M} {e.content}" for e in entries]
-        except Exception:  # introspection must not fail on a sick substrate
+        except Exception:  # noqa: BLE001 - introspection must not fail on a sick substrate
             recent = ["(outcome history unavailable)"]
 
     return SelfDescription(

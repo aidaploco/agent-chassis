@@ -39,24 +39,24 @@ OUTCOME_V1_FIELDS = {
 
 def _outcome(**overrides) -> OutcomeEvent:
     now = datetime.now(UTC)
-    defaults = dict(
-        role="lana",
-        tenant="acme",
-        task_type="conversation",
-        conversation_id="c-1",
-        workflow_run_id="r-1",
-        resolution=Resolution.RESOLVED,
-        turns=3,
-        tool_calls=2,
-        wall_time_ms=1500,
-        tokens_in=900,
-        tokens_out=400,
-        escalations=0,
-        guardrail_trips=0,
-        models_used=["gpt-5.4-mini"],
-        started_at=now,
-        ended_at=now,
-    )
+    defaults = {
+        "role": "lana",
+        "tenant": "acme",
+        "task_type": "conversation",
+        "conversation_id": "c-1",
+        "workflow_run_id": "r-1",
+        "resolution": Resolution.RESOLVED,
+        "turns": 3,
+        "tool_calls": 2,
+        "wall_time_ms": 1500,
+        "tokens_in": 900,
+        "tokens_out": 400,
+        "escalations": 0,
+        "guardrail_trips": 0,
+        "models_used": ["gpt-5.4-mini"],
+        "started_at": now,
+        "ended_at": now,
+    }
     return OutcomeEvent(**{**defaults, **overrides})
 
 

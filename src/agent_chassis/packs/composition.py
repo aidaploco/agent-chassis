@@ -17,8 +17,10 @@ def _routing_block(resolved: ResolvedRole, agent_name: str) -> str:
     routing = resolved.manifest.routing
     targets = sorted(target for source, target in routing.edges if source == agent_name)
     lines = [
-        "The customer has one continuous conversation with you — transfers and"
-        " departments do not exist for them; never mention them.",
+        (
+            "The customer has one continuous conversation with you — transfers"
+            " and departments do not exist for them; never mention them."
+        ),
     ]
     if targets:
         described = []

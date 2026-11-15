@@ -31,7 +31,10 @@ class FakeEmbedder:
 def postgres_url():
     docker_up = (
         shutil.which("docker") is not None
-        and subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+        and subprocess.run(
+            ["docker", "info"], capture_output=True, check=False
+        ).returncode
+        == 0
     )
     if not docker_up:
         if os.environ.get("CI"):  # never let CI go green by skipping these
@@ -68,13 +71,13 @@ def postgres_url():
             try:
                 psycopg.connect(url, connect_timeout=1).close()
                 break
-            except Exception:
+            except Exception:  # noqa: BLE001 - any connect error means not ready yet
                 time.sleep(0.5)
         else:
             raise RuntimeError("postgres container never became ready")
         yield url
     finally:
-        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
 
 
 @pytest.fixture

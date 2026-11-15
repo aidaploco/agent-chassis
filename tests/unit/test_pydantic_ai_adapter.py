@@ -326,7 +326,7 @@ async def test_leaf_agent_schema_and_naming():
     def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         return ModelResponse(parts=[TextPart("ok")])
 
-    adapter, handle = _adapter(fn)
+    _, handle = _adapter(fn)
     assert set(handle.agents) == {"supervisor", "billing", "support"}
     assert handle.agents["supervisor"].name == "lana_supervisor"
 
