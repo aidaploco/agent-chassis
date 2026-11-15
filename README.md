@@ -27,7 +27,7 @@ flowchart LR
     GR -->|pass| RT["Routing loop<br/>walks the manifest graph"]
     RT -->|"run_turn"| AD["adapters/pydantic_ai<br/>the only vendor import"]
     AD --> ACT["Model and tool calls<br/>each a Temporal activity"]
-    RT -->|"escalate / needs approval"| HU["Wait for approval signal<br/>reminders and expiry"]
+    RT -->|escalate| HU["Escalation recorded and acknowledged<br/>(the approval wait lives in TaskWorkflow)"]
     RT -->|reply| OUT["Reply + one OutcomeEvent"]
     WF -.-> PG[("Postgres + pgvector<br/>memory")]
     WF -.traces.-> PX["Phoenix"]
@@ -36,7 +36,7 @@ flowchart LR
 - **The adapter seam (D2).** The chassis owns all deterministic orchestration (message loop, routing, escalation, timers, continue-as-new) and depends only on the vendor-free types in [`contracts/`](src/agent_chassis/contracts/). Only code under [`adapters/`](src/agent_chassis/adapters/) may import the agent framework (`pydantic_ai`). This is enforced in CI by import-linter, not left to convention.
 - **Routing is the chassis's job (D4).** Agents return a structured directive (`reply`, `route`, `escalate`, `needs_approval`). The chassis walks the manifest's routing graph; an illegal or over-budget route is an error, never a silent fallback.
 - **Durable by construction (D1, D6a).** Conversation history is workflow state carried through continue-as-new, and every model and tool call is its own activity. A worker can be killed mid-conversation or mid-approval and the work resumes.
-- **Human approval is a workflow state (D10, D11).** A gated tool pauses the task, possibly for days. Decisions are attributed to the authenticated principal and written to an append-only audit log.
+- **Human approval is a workflow state (D10, D11).** A gated tool pauses a `TaskWorkflow`, possibly for days, with reminders and an expiry. Decisions are attributed to the authenticated principal and audit-logged before they take effect. A conversation that escalates records it and tells the user; it does not wait. The audit stream is structured log lines plus a memory entry today, not yet the Postgres table D11 describes.
 - **Fail closed.** The worker refuses to start without a payload-encryption key (D9), manifests reject unknown fields and out-of-bounds guardrail thresholds (D7), and approval endpoints refuse to serve unauthenticated (D21).
 - **Observability (D19).** One readable trace tree per turn, with guardrails as first-class spans, exported over OTLP to [Arize Phoenix](https://github.com/Arize-ai/phoenix) (or any OTLP backend) when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
 
@@ -142,7 +142,7 @@ Settings load from environment variables or `.env` ([`config.py`](src/agent_chas
 | `POSTGRES_URL` | unset | Memory substrate; a manifest with `substrate: none` runs without it |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | unset | Full OTLP/HTTP traces URL (Phoenix, Logfire, …). Tracing is disabled when unset. `PHOENIX_COLLECTOR_ENDPOINT` is a legacy alias |
 | `OTEL_EXPORTER_OTLP_HEADERS` | unset | `k=v,k2=v2` auth headers for the backend (e.g. a Logfire write token) |
-| `HTTP_BEARER_TOKENS` | unset | `token:principal,...`. When set, every `/v1/*` call needs a token (D21) |
+| `HTTP_BEARER_TOKENS` | unset | `token:principal,...`. When set, every `/v1/*` call needs a token (D21), except the Slack webhook, which is verified by its signing secret |
 | `SLACK_SIGNING_SECRET`, `SLACK_WEBHOOK_URL` | unset | Verify inbound Slack-shaped webhooks; push replies out |
 | `CONVERSATION_IDLE_SECONDS` | `3600` | Idle timeout before a conversation completes |
 | `TENANT` | `local` | A correlation label only, never an isolation mechanism (D16) |
@@ -183,7 +183,7 @@ Every package folder has its own README. A role runs as two processes off one im
 
 ## Design decisions at a glance
 
-Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions are implemented unless marked otherwise.
+Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions are implemented unless marked otherwise; **"Not built"** marks the part of a decision the code does not do yet.
 
 | Ref | In one line |
 |---|---|
@@ -191,18 +191,18 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 | **D2** | The adapter seam: the chassis is vendor-free; only `adapters/` imports the SDK. Enforced in CI. |
 | **D3** | Messages enter via Temporal update-with-start, so a reply can ride the result. |
 | **D4** | Routing is chassis-owned: agents emit structured directives; the chassis walks the graph. |
-| **D5** | Input guardrails run as pre-flight activities; output checks as validators. |
+| **D5** | Input guardrails run as pre-flight activities; output checks as validators. **Not built: output validators.** |
 | **D6 / D6a** | Two workflow types (conversation, task). Conversation history is workflow state; no session store. |
 | **D7** | Manifest schema v1: versioned, `extra="forbid"`, naming-stable identifiers, fail-closed. |
 | **D8** | Memory is retrieval plus write-back behind one interface (pgvector today). |
 | **D9** | Payload encryption fails closed: no codec key, no worker. |
-| **D10 / D11** | Human escalation is a first-class workflow state; one append-only audit log for overrides and approvals. |
-| **D12** | Each completed conversation or task emits one versioned `OutcomeEvent`. |
+| **D10 / D11** | Human escalation is a first-class workflow state; one append-only audit log for overrides and approvals. **Not built: the Postgres audit table (the stream is log lines plus memory entries), the wait state for conversations (only tasks wait), and pushing escalations to `approvers_channel`.** |
+| **D12** | Each completed conversation or task emits one versioned `OutcomeEvent`, as a log line and a memory entry. **Not built: the Postgres row and the OTel span event.** |
 | **D13** | Inbound turns are serialized through an in-workflow FIFO queue. |
 | **D14** | Workflow changes ship behind `workflow.patched()`; ledger in `PATCHES.md`. |
-| **D15** | Outbound delivery is at-least-once and idempotent per structured delivery key. |
+| **D15** | Outbound delivery is at-least-once and idempotent per structured delivery key. **Not built: reminder and task deliveries (only conversation replies are pushed).** |
 | **D16** | One tenant per deployment; isolation is the deployment environment's job. |
-| **D17** | Evals are chassis machinery: versioned case schema, full-conversation binary judge. |
+| **D17** | Evals are chassis machinery: versioned case schema, full-conversation binary judge. **Not built: pack-bundled suites and the CI eval gate.** |
 | **D18** | Two units (HTTP and worker) off one image. |
 | **D19** | Traces: one readable tree per turn, guardrails as first-class spans. |
 | **D20** | Role artifacts split by trust tier: curated packs baked into the image, tenant packs mounted. |
@@ -212,7 +212,7 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 
 ## Known limitations
 
-- **Demo data and no real backends.** Brightloop is fictional. The billing and support backends are stateless mocks, and the billing tools act on an email address with no authentication.
+- **Demo data and no real backends.** Brightloop is fictional. The billing backend is a stateless mock and its tools act on an email address with no authentication; the support mock keeps created tickets in the worker's memory.
 - **Authentication is a placeholder.** Bearer tokens come from an environment variable (D21). Without them, `/v1/messages` serves anonymously (logged), while `/v1/tasks` and `/v1/approvals` refuse to serve. Real SSO or OIDC is not implemented.
 - **The Slack channel is Slack-shaped.** It is tested against a fake; there is no Slack app, OAuth flow, or real workspace integration.
 - **Single tenant per deployment (D16).** Tenant isolation is assumed to come from the environment; the `tenant` field is only a label.
@@ -220,6 +220,7 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 - **Memory is pgvector only,** and memory retrieval is employee-wide. The scoped retrieval API and MCP exposure in D22 and D24 are designed but not built.
 - **Guardrails and the eval judge are LLM-based** and therefore probabilistic. They reduce risk; they do not eliminate it.
 - **One runtime adapter.** The seam is designed and import-enforced, but only the pydantic-ai adapter exists, so it has not been proven against a second SDK.
+- **No static type checking.** The code is annotated, but no type checker runs in CI.
 - **Not load-tested, and no production deployment manifests.** The repo ships a Dockerfile, a compose file, and a reproducible image build script; a Kubernetes deployment is left to the operator.
 
 ## Development conventions

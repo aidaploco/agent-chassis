@@ -18,8 +18,10 @@ carry a real, multi-agent conversational role.
 
 - [`manifest.yaml`](manifest.yaml) — the role.
 - [`packs/billing.py`](packs/billing.py), [`packs/support.py`](packs/support.py)
-  — the two capability packs. Mock-backed and **stateless** on purpose so eval
-  cases can't contaminate each other; a real backend swaps the handler bodies.
+  — the two capability packs. Mock-backed; a real backend swaps the handler
+  bodies. Billing is **stateless** on purpose so eval cases can't contaminate
+  each other. Support keeps created tickets in a module-level dict (lost on
+  worker restart) so `get_ticket_status` can find a ticket filed earlier.
   Note the cancel-discipline: `cancel_subscription` requires a
   customer-stated reason and must never be invented — enforced by both the
   instructions and the tool description.

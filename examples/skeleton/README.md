@@ -1,7 +1,8 @@
 # `skeleton/` — the walking-skeleton Employee
 
 The simplest possible role: one agent (`concierge`), one trivial capability
-(`echo`, which reverses text), no routing, no guardrails, no memory. Its
+(`echo`, which reverses text) plus the builtin `introspection` pack, no
+routing, no guardrails, no memory. Its
 `display_name` is Echo.
 
 **Why it exists (M3.5):** to exercise the *whole* pipeline —
