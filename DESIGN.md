@@ -72,6 +72,17 @@ vendor-native handoffs would couple routing to the SDK (see D4).
 pattern).** Simpler, proven, but loses per-model-call/per-tool-call durability
 and retry granularity, which this design requires.
 
+**Amended 2026-11-15 — `TemporalAgent` is deprecated.** pydantic-ai 2.68
+replaced the `TemporalAgent` wrapper with a `TemporalDurability` capability on a
+regular `Agent`, and the adapter now builds agents that way
+(`capabilities=[TemporalDurability()]`). The per-tool opt-out above is now tool
+metadata (`{"temporal": False}`) instead of `tool_activity_config`. Activity
+names still derive from the agent name and toolset ids, so the consequence
+above is unchanged. Verified by continuing an in-flight conversation on a
+worker running the new code (between turns; a worker killed mid-activity was not
+exercised). The paragraphs below describe the original wrapper and are left as
+decided.
+
 ### D2 — Runtime adapter seam: chassis owns the workflow shell
 
 **Decision.** The chassis owns all deterministic orchestration: the message

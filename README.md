@@ -187,7 +187,7 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 
 | Ref | In one line |
 |---|---|
-| **D1** | Runtime is pydantic-ai wrapped by Temporal's `TemporalAgent` (per-call durability). |
+| **D1** | Runtime is pydantic-ai made durable by Temporal's `TemporalDurability` capability (per-call durability; the `TemporalAgent` wrapper it started on is deprecated). |
 | **D2** | The adapter seam: the chassis is vendor-free; only `adapters/` imports the SDK. Enforced in CI. |
 | **D3** | Messages enter via Temporal update-with-start, so a reply can ride the result. |
 | **D4** | Routing is chassis-owned: agents emit structured directives; the chassis walks the graph. |
