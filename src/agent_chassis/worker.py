@@ -20,6 +20,7 @@ from agent_chassis.adapters.pydantic_ai import (
     bind_workflow_agents,
     temporal_plugins,
 )
+from agent_chassis.channels.base import OutboundSender
 from agent_chassis.channels.slack import SlackOutboundSender
 from agent_chassis.config import ChassisSettings, get_settings
 from agent_chassis.durable.activities import ChassisActivities
@@ -27,13 +28,50 @@ from agent_chassis.durable.converter import build_data_converter
 from agent_chassis.durable.runtime_context import RoleRuntime, set_role_runtime
 from agent_chassis.durable.schedules import ensure_schedules
 from agent_chassis.durable.workflows import ConversationWorkflow, TaskWorkflow
-from agent_chassis.manifest import load_manifest
+from agent_chassis.manifest import RoleManifest, load_manifest
 from agent_chassis.memory.pgvector import PgVectorSubstrate
 from agent_chassis.observability import setup_tracing
 from agent_chassis.role_loader import build_substrate, load_role
 from agent_chassis.utils.logger import get_logger
 
 _logger = get_logger(__name__)
+
+
+def build_approvers_sender(
+    settings: ChassisSettings, manifest: RoleManifest
+) -> OutboundSender | None:
+    """Where escalation and approval notices are pushed (D10), or ``None``.
+
+    ``None`` is a legitimate configuration (an ``http`` approvers channel is
+    pull-based: humans poll ``GET /v1/tasks/{id}``), but it means nobody is
+    told. That is easy to ship by accident, so it is logged at start rather
+    than discovered when an escalation goes unanswered.
+    """
+    channel = manifest.escalation.approvers_channel
+    if channel == "slack":
+        if settings.slack_approvers_webhook_url:
+            # Its own webhook, and no channel derived from a conversation: the
+            # notice carries internal reasons and tool arguments and must not
+            # be able to land where a customer reads.
+            return SlackOutboundSender(
+                settings.slack_approvers_webhook_url,
+                derive_channel=False,
+                channel=settings.slack_approvers_channel,
+            )
+        _logger.warning(
+            "escalation.approvers_channel is 'slack' but SLACK_APPROVERS_WEBHOOK_URL"
+            " is not set — escalations and approval requests are only logged;"
+            " nobody will be told"
+        )
+        return None
+    _logger.warning(
+        "escalation.approvers_channel is %r, which has no push path (http is"
+        " pull-based) — escalations and approval requests are logged only;"
+        " approvers must poll GET /v1/tasks/{id}. Set approvers_channel to"
+        " 'slack' with SLACK_APPROVERS_WEBHOOK_URL to have them pushed",
+        channel,
+    )
+    return None
 
 
 def build_runtime(settings: ChassisSettings) -> RoleRuntime:
@@ -68,6 +106,7 @@ def build_runtime(settings: ChassisSettings) -> RoleRuntime:
         handle=adapter.build(resolved),
         push_senders=push_senders,
         substrate=substrate,
+        approvers_sender=build_approvers_sender(settings, manifest),
     )
 
 

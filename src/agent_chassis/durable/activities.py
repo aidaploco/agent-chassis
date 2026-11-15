@@ -13,6 +13,7 @@ from agent_chassis.contracts import (
 )
 from agent_chassis.durable.models import (
     ApprovalRecord,
+    ApproverNotice,
     EscalationRecord,
     GuardrailCheck,
     GuardrailOutcome,
@@ -24,6 +25,44 @@ from agent_chassis.utils.logger import get_logger
 _logger = get_logger(__name__)
 _tracer = trace.get_tracer("agent_chassis.durable.activities")
 _RECENT = 1000
+
+
+def render_notice(notice: ApproverNotice) -> str:
+    """The text an approver reads — enough to act on without opening a log.
+
+    Internal by design: reasons and tool arguments appear here, which is why
+    this goes to the approvers' own destination and never to a customer's.
+    """
+    if notice.kind == "escalation":
+        lines = [
+            f"[{notice.employee}] escalated a conversation to a human",
+            f"Reason: {notice.reason}",
+            f"Handled by agent: {notice.agent}",
+        ]
+        if notice.requester:
+            lines.append(
+                f"With: {notice.requester}"
+                + (f" (via {notice.channel})" if notice.channel else "")
+            )
+        lines.append(f"Conversation: {notice.subject_id}")
+        return "\n".join(lines)
+
+    heading = (
+        f"[{notice.employee}] reminder: still waiting for approval"
+        if notice.kind == "reminder"
+        else f"[{notice.employee}] needs approval to continue"
+    )
+    lines = [heading, f"Task run: {notice.subject_id}"]
+    lines += [
+        f"- {item.tool} {item.args}  (call {item.call_id})" for item in notice.pending
+    ]
+    lines.append(
+        'Decide with POST /v1/approvals {"workflow_id": "'
+        + notice.subject_id
+        + '", "approved": true|false}'
+        " (add call_id to decide one call; omit it to decide all)."
+    )
+    return "\n".join(lines)
 
 
 class ChassisActivities:
@@ -148,6 +187,37 @@ class ChassisActivities:
             _logger.exception("memory write-back failed kind=%s", kind)
 
     @activity.defn
+    async def notify_approvers(self, notice: ApproverNotice) -> None:
+        """Push an escalation / approval notice to escalation.approvers_channel
+        (D10). Raises on a failed send so Temporal retries; the workflow bounds
+        the retries. With no push path (an http approvers channel is
+        pull-based) it logs instead — the worker warned about that at start."""
+        sender = self._runtime.approvers_sender
+        if sender is None:
+            _logger.info(
+                "approver notice not pushed (no approvers push channel) key=%s: %s",
+                notice.key,
+                notice.reason,
+            )
+            return
+        channel = (
+            self._runtime.resolved.manifest.escalation.approvers_channel
+            if self._runtime.resolved is not None
+            else "unknown"
+        )
+        await sender.deliver(
+            OutboundDelivery(
+                key=notice.key,
+                channel=channel,
+                # Not a customer conversation: the sender is built with its own
+                # destination and must not derive one from this.
+                conversation_id=f"approvers-{notice.employee}",
+                text=render_notice(notice),
+                metadata={"audience": "approvers", "kind": notice.kind},
+            )
+        )
+
+    @activity.defn
     async def deliver_reply(self, delivery: OutboundDelivery) -> None:
         sender = self._runtime.push_senders[delivery.channel]
         await sender.deliver(delivery)
@@ -160,5 +230,6 @@ class ChassisActivities:
             self.emit_outcome,
             self.record_escalation,
             self.record_approval,
+            self.notify_approvers,
             self.deliver_reply,
         ]

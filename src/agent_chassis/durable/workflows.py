@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
         TurnRequest,
     )
     from agent_chassis.durable.models import (
+        ApproverNotice,
         ApprovalRecord,
         ApprovalSignal,
         ConversationParams,
@@ -63,6 +64,31 @@ _DELIVERY_RETRY = RetryPolicy(maximum_attempts=4)
 
 # D14 patch ids — every entry here has a row in PATCHES.md.
 _PATCH_COMPACT_BY_HISTORY_TURNS = "compaction-by-history-turns"
+_PATCH_NOTIFY_APPROVERS = "notify-approvers"
+_NOTIFY_ACTIVITY_TIMEOUT = timedelta(seconds=15)
+
+
+async def _notify_approvers(notice: "ApproverNotice") -> None:
+    """Tell the approvers' channel (D10) — bounded and best-effort.
+
+    Retries are capped for the same reason as reply delivery: Temporal's
+    default is to retry forever, and this is awaited inside a turn or a
+    pause, so a dead webhook must cost the notice, not the conversation.
+    A lost notice is logged loudly; the escalation is still recorded.
+    """
+    try:
+        await workflow.execute_activity(
+            "notify_approvers",
+            notice,
+            start_to_close_timeout=_NOTIFY_ACTIVITY_TIMEOUT,
+            retry_policy=_DELIVERY_RETRY,
+        )
+    except ActivityError as exc:
+        workflow.logger.error(
+            "approver notice failed permanently key=%s: %s",
+            notice.key,
+            exc.cause or exc,
+        )
 
 
 def _absorb_usage_events(state: "ConversationState", events) -> None:
@@ -340,6 +366,20 @@ class ConversationWorkflow:
                     ),
                     start_to_close_timeout=_EMIT_ACTIVITY_TIMEOUT,
                 )
+                if workflow.patched(_PATCH_NOTIFY_APPROVERS):
+                    await _notify_approvers(
+                        ApproverNotice(
+                            key=f"{envelope.conversation_id}:escalation:{turn_number}",
+                            kind="escalation",
+                            employee=manifest.employee.name,
+                            tenant=envelope.tenant,
+                            subject_id=envelope.conversation_id,
+                            agent=agent,
+                            reason=directive.reason,
+                            requester=envelope.sender,
+                            channel=envelope.channel,
+                        )
+                    )
                 return TurnReply(
                     content=_ESCALATION_ACK,
                     agent=agent,
@@ -524,7 +564,21 @@ class TaskWorkflow:
                 ),
                 start_to_close_timeout=_EMIT_ACTIVITY_TIMEOUT,
             )
-            decisions = await self._await_decisions(items)
+            if workflow.patched(_PATCH_NOTIFY_APPROVERS):
+                await _notify_approvers(
+                    ApproverNotice(
+                        key=f"{workflow.info().workflow_id}:approval:{runs}",
+                        kind="approval",
+                        employee=self._manifest.employee.name,
+                        tenant=params.tenant,
+                        subject_id=workflow.info().workflow_id,
+                        agent=spec.agent,
+                        reason="approval required: "
+                        + ", ".join(item.tool for item in items),
+                        pending=list(items),
+                    )
+                )
+            decisions = await self._await_decisions(items, pause=runs)
             self._pending = []
             for decision in decisions:
                 approvals += decision.approved
@@ -570,6 +624,18 @@ class TaskWorkflow:
                 ),
                 start_to_close_timeout=_EMIT_ACTIVITY_TIMEOUT,
             )
+            if workflow.patched(_PATCH_NOTIFY_APPROVERS):
+                await _notify_approvers(
+                    ApproverNotice(
+                        key=f"{workflow.info().workflow_id}:escalation:final",
+                        kind="escalation",
+                        employee=self._manifest.employee.name,
+                        tenant=params.tenant,
+                        subject_id=workflow.info().workflow_id,
+                        agent=spec.agent,
+                        reason=directive.reason,
+                    )
+                )
             content, escalated = _ESCALATION_ACK, True
         else:  # Route from a task agent has no meaning (D6)
             workflow.logger.error("task agent produced a route directive")
@@ -633,7 +699,7 @@ class TaskWorkflow:
         _absorb_usage_events(self._state, result.events)
         return result
 
-    async def _await_decisions(self, items) -> list["ApprovalDecision"]:
+    async def _await_decisions(self, items, pause: int = 0) -> list["ApprovalDecision"]:
         """WAITING_ON_HUMAN (D10): durable wait with reminder and expiry
         timers. Undecided calls are denied at expiry (approver 'system')."""
         escalation = self._manifest.escalation
@@ -642,6 +708,7 @@ class TaskWorkflow:
         next_reminder = started + escalation.remind_after
         undecided = {item.call_id for item in items}
         decided: dict[str, ApprovalDecision] = {}
+        reminders = 0
 
         while undecided and workflow.now() < deadline:
             timeout = (min(next_reminder, deadline) - workflow.now()).total_seconds()
@@ -669,6 +736,23 @@ class TaskWorkflow:
                         ),
                         start_to_close_timeout=_EMIT_ACTIVITY_TIMEOUT,
                     )
+                    reminders += 1
+                    if workflow.patched(_PATCH_NOTIFY_APPROVERS):
+                        await _notify_approvers(
+                            ApproverNotice(
+                                key=(
+                                    f"{workflow.info().workflow_id}:reminder:"
+                                    f"{pause}:{reminders}"
+                                ),
+                                kind="reminder",
+                                employee=self._manifest.employee.name,
+                                tenant=self._params.tenant,
+                                subject_id=workflow.info().workflow_id,
+                                agent=self._spec.agent,
+                                reason="still waiting on a decision",
+                                pending=[i for i in items if i.call_id in undecided],
+                            )
+                        )
                     next_reminder = workflow.now() + escalation.remind_after
                 continue
             for signal in self._signals:
