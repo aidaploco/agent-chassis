@@ -28,9 +28,11 @@ left as decided; these parts of it are not in the code yet:
 - **D15:** only conversation replies are delivered through the outbound
   activity. Reminder and scheduled-message deliveries (and their key
   shapes) are not built; reminders are escalation records.
-- **D17:** pack-bundled suites are declared but not read by the runner, and
-  CI does not run evals.
-- **Quality gates:** no type checker runs, and there is no eval gate in CI.
+- **D17:** pack-bundled suites are declared but not read by the runner. Lana's
+  suite runs nightly in CI (`.github/workflows/evals.yml`, 3 runs per case, 2
+  of 3 must pass); it is not part of the per-PR gate.
+- **Quality gates:** no type checker runs. The eval suite is a nightly
+  advisory job, not a per-PR gate.
 
 ## What this is
 
@@ -883,7 +885,8 @@ started_at / ended_at: datetime (UTC)
 Annotated throughout; ruff (format + lint) clean; pytest with coverage gate
 (≥80%); Temporal tests against a real local dev server (updates and CAN
 semantics demand it); import-linter contract in CI; conventional commits.
-Planned, not in place: a type checker and an eval gate in CI.
+Planned, not in place: a type checker, and a per-PR eval gate (the suite runs
+nightly instead; see the status block at the top).
 
 ## Configuration contract
 

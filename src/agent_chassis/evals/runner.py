@@ -151,9 +151,18 @@ async def run_suite(
     *,
     token: str | None = None,
     concurrency: int = 4,
+    repeat: int = 1,
+    min_pass_rate: float = 1.0,
 ) -> int:
+    """Run every case ``repeat`` times and gate on each case's pass rate.
+
+    Model behaviour is probabilistic, so a single run is a coin flip near the
+    margin. ``repeat`` > 1 with a ``min_pass_rate`` below 1 (say 3 runs, 0.67)
+    tolerates an occasional miss while still failing a case that is broken.
+    The defaults (one run, every run must pass) are the strict behaviour.
+    """
     cases = load_cases(cases_path)
-    # Each case is its own conversation, so they are independent; a small
+    # Each run is its own conversation, so they are independent; a small
     # bound keeps a suite from hammering the model provider's rate limits.
     gate = asyncio.Semaphore(max(1, concurrency))
 
@@ -161,16 +170,30 @@ async def run_suite(
         async with gate:
             return await run_case(case, base_url, judge_model, token=token)
 
-    results = await asyncio.gather(*(run(case) for case in cases))
-    for result in results:
-        mark = "PASS" if result.passed else "FAIL"
-        print(f"{mark} {result.case_id}")
-        for grader in result.graders:
-            if not grader.passed or mark == "FAIL":
-                print(f"     {grader.name}: {'ok' if grader.passed else grader.detail}")
-    passed = sum(r.passed for r in results)
-    print(f"\n{passed}/{len(results)} cases passed")
-    return 0 if passed == len(results) else 1
+    results = await asyncio.gather(
+        *(run(case) for case in cases for _ in range(repeat))
+    )
+    by_case = {
+        case.id: results[i * repeat : (i + 1) * repeat] for i, case in enumerate(cases)
+    }
+
+    meeting = 0
+    for case_id, runs in by_case.items():
+        passed = sum(r.passed for r in runs)
+        ok = passed / repeat + 1e-9 >= min_pass_rate
+        meeting += ok
+        suffix = f" ({passed}/{repeat})" if repeat > 1 else ""
+        print(f"{'PASS' if ok else 'FAIL'} {case_id}{suffix}")
+        if repeat > 1 and not ok:
+            print(f"     needs {min_pass_rate:.0%} of runs, got {passed / repeat:.0%}")
+        for run_result in runs:
+            if run_result.passed:
+                continue
+            for grader in run_result.graders:
+                if not grader.passed:
+                    print(f"     {grader.name}: {grader.detail}")
+    print(f"\n{meeting}/{len(cases)} cases passed")
+    return 0 if meeting == len(cases) else 1
 
 
 def main() -> None:  # pragma: no cover
@@ -190,6 +213,8 @@ def main() -> None:  # pragma: no cover
                 judge,
                 token=os.environ.get("EVAL_BEARER_TOKEN") or None,
                 concurrency=int(os.environ.get("EVAL_CONCURRENCY", "4")),
+                repeat=max(1, int(os.environ.get("EVAL_REPEAT", "1"))),
+                min_pass_rate=float(os.environ.get("EVAL_MIN_PASS_RATE", "1.0")),
             )
         )
     )
