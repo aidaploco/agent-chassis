@@ -1,3 +1,6 @@
 """Runtime chassis for role-based AI Employees."""
 
-__version__ = "0.1.0"
+from importlib.metadata import version
+
+# Single source of truth is pyproject.toml (this constant had drifted from it).
+__version__ = version("agent-chassis")

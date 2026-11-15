@@ -136,17 +136,27 @@ class SlackOutboundSender:
             self._seen.move_to_end(delivery.key)
             _logger.info("duplicate delivery suppressed key=%s", delivery.key)
             return
+        # Reserve the key while the send is in flight (a concurrent retry of
+        # the same delivery is still suppressed), but forget it if the send
+        # fails: otherwise the activity's retry is "suppressed as a duplicate"
+        # and the reply is silently lost — at-most-once, not at-least-once.
         self._remember(delivery.key)
-        async with httpx.AsyncClient(timeout=10, transport=self._transport) as client:
-            response = await client.post(
-                self._webhook_url,
-                json={
-                    "channel": delivery.conversation_id.removeprefix("slack-"),
-                    "text": delivery.text,
-                    "metadata": {"idempotency_key": delivery.key},
-                },
-            )
-            response.raise_for_status()
+        try:
+            async with httpx.AsyncClient(
+                timeout=10, transport=self._transport
+            ) as client:
+                response = await client.post(
+                    self._webhook_url,
+                    json={
+                        "channel": delivery.conversation_id.removeprefix("slack-"),
+                        "text": delivery.text,
+                        "metadata": {"idempotency_key": delivery.key},
+                    },
+                )
+                response.raise_for_status()
+        except BaseException:
+            self._seen.pop(delivery.key, None)
+            raise
 
     def _remember(self, key: str) -> None:
         self._seen[key] = None

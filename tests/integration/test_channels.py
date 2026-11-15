@@ -159,6 +159,17 @@ async def test_authenticated_approval_binds_principal(authed_api, chassis):  # n
     assert activities.approval_records[-1].approver == "aida"
 
 
+async def test_unknown_task_workflow_is_404(authed_api):
+    headers = {"Authorization": "Bearer tok-a"}
+    status = await authed_api.get("/v1/tasks/task-does-not-exist", headers=headers)
+    approval = await authed_api.post(
+        "/v1/approvals",
+        json={"workflow_id": "task-does-not-exist", "approved": True},
+        headers=headers,
+    )
+    assert status.status_code == 404 and approval.status_code == 404
+
+
 async def test_slack_signature_enforced(authed_api):
     body = b'{"channel": "C1", "user": "U1", "text": "hello"}'
     unsigned = await authed_api.post(

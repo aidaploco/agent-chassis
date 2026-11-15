@@ -11,7 +11,7 @@ from agent_chassis.introspection import (
     IntrospectionPack,
     build_self_description,
 )
-from agent_chassis.manifest import load_manifest
+from agent_chassis.manifest import RoleManifest
 from agent_chassis.memory.base import MemoryEntry
 from agent_chassis.memory.pack import MemoryPack
 from agent_chassis.packs import CapabilityPack, PackConfig, PackRegistry, ToolSpec
@@ -76,13 +76,7 @@ def resolved():
     data = yaml.safe_load((FIXTURES / "lana.yaml").read_text())
     data["capabilities"][0]["config"] = {}
     data["guardrails"] = []
-    path = FIXTURES / "_introspection_manifest.yaml"
-    path.write_text(yaml.safe_dump(data))
-    try:
-        manifest = load_manifest(path)
-    finally:
-        path.unlink()
-    return registry.resolve(manifest)
+    return registry.resolve(RoleManifest.model_validate(data))
 
 
 async def test_self_description_content(resolved):

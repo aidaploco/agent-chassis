@@ -1,8 +1,8 @@
 """Eval contract v1 (D17): case schema, loader, structural graders.
 
-Cases are multi-turn from day one and the judge (added with the walking
-skeleton, M3.5) always sees the full conversation — the two structural gaps
-found in the earlier prototype's harness.
+Cases are multi-turn from day one and the judge (``runner.py``) always sees
+the full conversation — the two structural gaps found in the earlier
+prototype's harness.
 """
 
 from agent_chassis.evals.cases import EvalCase, EvalMessage, load_cases

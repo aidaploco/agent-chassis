@@ -48,7 +48,7 @@ from agent_chassis.durable.models import (
 )
 from agent_chassis.durable.runtime_context import RoleRuntime, set_role_runtime
 from agent_chassis.durable.workflows import ConversationWorkflow, TaskWorkflow
-from agent_chassis.manifest import load_manifest
+from agent_chassis.manifest import RoleManifest
 from agent_chassis.packs import (
     CapabilityPack,
     GuardrailPack,
@@ -207,14 +207,7 @@ def _build_runtime(escalation: dict | None = None) -> RoleRuntime:
     data["escalation"]["approval_required_tools"] = ["publish_summary"]
     if escalation:
         data["escalation"].update(escalation)
-    path = FIXTURES / "_workflow_manifest.yaml"
-    path.write_text(yaml.safe_dump(data))
-    try:
-        manifest = load_manifest(path)
-    finally:
-        path.unlink()
-
-    resolved = registry.resolve(manifest)
+    resolved = registry.resolve(RoleManifest.model_validate(data))
     adapter = PydanticAIAdapter(model=FunctionModel(_script))
     return RoleRuntime(
         resolved=resolved,

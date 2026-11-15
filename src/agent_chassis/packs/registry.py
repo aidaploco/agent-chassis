@@ -177,6 +177,21 @@ class PackRegistry:
             if cases is not None:
                 eval_case_dirs.append(cases)
 
+        # A gated tool name no composed pack provides gates nothing: a typo
+        # here would let the real tool run with no approval at all. Fail
+        # closed instead of silently dropping the gate (D7/D10).
+        provided = {
+            spec.name
+            for capability in capabilities.values()
+            for spec in capability.pack.tools(capability.config)
+        }
+        ungated = sorted(set(manifest.escalation.approval_required_tools) - provided)
+        if ungated:
+            raise PackError(
+                f"escalation.approval_required_tools names tools no composed"
+                f" capability provides: {ungated} (provided: {sorted(provided)})"
+            )
+
         guardrails: list[ResolvedGuardrail] = []
         for gref in manifest.guardrails:
             gpack = self._guardrails.get(gref.pack)

@@ -23,7 +23,7 @@ from agent_chassis.contracts import (
     TurnContext,
     TurnRequest,
 )
-from agent_chassis.manifest import load_manifest
+from agent_chassis.manifest import RoleManifest
 from agent_chassis.packs import (
     CapabilityPack,
     PackConfig,
@@ -75,13 +75,7 @@ def _resolved(approval_required: list[str] | None = None):
     data["capabilities"][0]["config"] = {}
     if approval_required is not None:
         data["escalation"]["approval_required_tools"] = approval_required
-    path = FIXTURES / "_adapter_manifest.yaml"
-    path.write_text(yaml.safe_dump(data))
-    try:
-        manifest = load_manifest(path)
-    finally:
-        path.unlink()
-    return registry.resolve(manifest)
+    return registry.resolve(RoleManifest.model_validate(data))
 
 
 def _request(agent: str, text: str, history=None, turn=1, note=None) -> TurnRequest:
@@ -279,12 +273,7 @@ def test_reserved_tool_name_prefix_rejected_at_build():
     data = yaml.safe_load((FIXTURES / "lana.yaml").read_text())
     data["guardrails"] = []
     data["capabilities"][0]["config"] = {}
-    path = FIXTURES / "_adapter_bad_manifest.yaml"
-    path.write_text(yaml.safe_dump(data))
-    try:
-        manifest = load_manifest(path)
-    finally:
-        path.unlink()
+    manifest = RoleManifest.model_validate(data)
     adapter = PydanticAIAdapter(model=FunctionModel(_approval_script))
     with pytest.raises(ValueError, match="reserved 'final_result' prefix"):
         adapter.build(registry.resolve(manifest))

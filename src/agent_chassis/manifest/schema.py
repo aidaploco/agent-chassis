@@ -106,7 +106,7 @@ class CapabilityRef(BaseModel):
     """Reference to a capability pack with per-role config.
 
     ``config`` is structurally accepted here and validated against the pack's
-    own pydantic config model at registry-resolution time (Phase 3).
+    own pydantic config model at registry-resolution time.
 
     Fields:
         pack: The registered pack name to compose (e.g. ``billing``).

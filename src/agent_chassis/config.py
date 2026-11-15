@@ -1,3 +1,4 @@
+import hmac
 from functools import lru_cache
 
 from pydantic import AliasChoices, Field
@@ -82,7 +83,7 @@ class ChassisSettings(BaseSettings):
             return None
         for pair in self.http_bearer_tokens.split(","):
             candidate, _, principal = pair.strip().partition(":")
-            if candidate and candidate == token:
+            if candidate and hmac.compare_digest(candidate.encode(), token.encode()):
                 return principal or "unnamed"
         return None
 

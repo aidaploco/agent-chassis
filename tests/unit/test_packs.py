@@ -164,3 +164,14 @@ def test_entry_point_discovery(monkeypatch):
     r = PackRegistry()
     r.discover()
     assert "billing" in r._capabilities
+
+
+def test_gated_tool_must_exist(registry, lana_manifest):
+    """A typo in approval_required_tools would otherwise silently leave the
+    real tool ungated — it must fail closed at resolve time."""
+    lana_manifest.escalation.approval_required_tools = ["get_invoice"]
+    registry.resolve(lana_manifest)  # a real tool resolves
+
+    lana_manifest.escalation.approval_required_tools = ["get_invoyce"]
+    with pytest.raises(PackError, match="get_invoyce"):
+        registry.resolve(lana_manifest)

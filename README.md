@@ -110,12 +110,12 @@ With Lana running, try the mock accounts `dana@example.com` (Pro) and `sam@examp
 ```bash
 uv sync                                          # Python is pinned in .python-version
 uv run pytest tests/unit                         # fast, no network or services
-uv run pytest --cov                              # everything: 94 tests
+uv run pytest --cov                              # everything (needs Docker)
 uv run ruff format --check . && uv run ruff check .
 uv run lint-imports                              # the adapter seam contract (D2)
 ```
 
-The unit tests need nothing external. The integration tests run Temporal's in-process test server, and the pgvector tests start a throwaway Postgres container, so Docker must be running. CI runs lint, import-linter, and the full suite with an 80% coverage gate (currently about 84%).
+The unit tests need nothing external. The integration tests run Temporal's in-process test server, and the pgvector tests start a throwaway Postgres container, so Docker must be running. CI runs lint, import-linter, and the full suite with an 80% coverage gate.
 
 The **eval harness** (D17) drives real conversations through a running Employee and grades them. Lana's suite has 13 cases, including multi-turn and cancel-discipline cases. With the stack up (the runner reads `OPENAI_API_KEY` from the shell, not from `.env`, so export it first):
 

@@ -28,8 +28,9 @@ class ChassisActivities:
     """Chassis-owned activities: guardrail pre-flight (D5), history
     compaction (D6a), outcome emission (D12), escalation records (D11).
 
-    V1 emits outcomes and escalation records as structured logs; the
-    Postgres audit/outcome store lands with the memory substrate phase.
+    V1 emits outcomes, escalations and approvals as structured log lines
+    plus a best-effort one-line entry in the memory substrate; there is no
+    dedicated Postgres audit/outcome table yet (D11/D12 name one).
     """
 
     def __init__(self, runtime: RoleRuntime) -> None:
