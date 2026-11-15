@@ -442,3 +442,29 @@ async def test_compaction_summary_is_a_running_total_and_reaches_the_agent():
     assert history.summary == "[4 earlier turns compacted]"
     assert "earlier turns compacted" not in seen[0]  # nothing compacted yet
     assert "[4 earlier turns compacted]" in seen[-1]
+
+
+async def test_repeated_text_parts_are_collapsed_to_one_reply():
+    """A model that returns the same sentence as two text parts must not
+    reach the customer as a doubled message."""
+
+    def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(
+            parts=[
+                TextPart("What prompted the decision?"),
+                TextPart("What prompted the decision?"),
+            ]
+        )
+
+    adapter, handle = _adapter(fn)
+    result = await adapter.run_turn(handle, _request("supervisor", "cancel"))
+    assert result.directive == Reply(content="What prompted the decision?")
+
+
+async def test_different_text_parts_are_still_joined():
+    def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart("First part. "), TextPart("Second part.")])
+
+    adapter, handle = _adapter(fn)
+    result = await adapter.run_turn(handle, _request("supervisor", "hi"))
+    assert result.directive == Reply(content="First part. Second part.")
