@@ -21,9 +21,11 @@ across three deliberately different role shapes.
 ```
 
 Read them in order — skeleton → Lana → Nova — for increasing complexity. The
-packs are mock-backed on purpose (stateless handlers, no shared module state so
-runs can't contaminate each other); a real backend swaps the handler bodies and
-nothing else. Note that a "destructive" tool like Nova's `publish_report` is
+packs are mock-backed on purpose; a real backend swaps the handler bodies and
+nothing else. Billing and reporting are stateless, so runs can't contaminate
+each other. The one exception is Lana's support pack, which keeps created
+tickets in a module-level dict so a ticket can be looked up later in the same
+worker process. Note that a "destructive" tool like Nova's `publish_report` is
 gated in the **manifest** (`escalation.approval_required_tools`), *not* in the
 pack code — the same pack composed into another role could run it freely.
 

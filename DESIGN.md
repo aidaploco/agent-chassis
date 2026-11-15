@@ -10,6 +10,28 @@ decisions, and the build history is at the end.
 **Not implemented:** D24, and Mem-2/Mem-3 of D22, are proposals. D23 (Mem-1) is
 built.
 
+**Partly implemented (status as of 2026-11-14).** The decision text below is
+left as decided; these parts of it are not in the code yet:
+
+- **D5:** output-side validators. Only the input guardrails exist.
+- **D10:** the `WAITING_ON_HUMAN` wait exists for `TaskWorkflow` only. A
+  conversation that escalates (by directive or by reaching an approval-gated
+  tool) records the escalation and acknowledges it to the user. Guardrails
+  refuse; they do not escalate. Nothing is pushed to
+  `escalation.approvers_channel`.
+- **D11:** there is no Postgres audit table. Manifest overrides are logged
+  at worker start; approval decisions are logged and written to the memory
+  substrate as entries, before the workflow acts on them.
+- **D12:** outcome events are a structured log line plus a one-line memory
+  entry. The Postgres row and the OTel span event are not built, and the
+  contract test pins the field set rather than a golden serialization.
+- **D15:** only conversation replies are delivered through the outbound
+  activity. Reminder and scheduled-message deliveries (and their key
+  shapes) are not built; reminders are escalation records.
+- **D17:** pack-bundled suites are declared but not read by the runner, and
+  CI does not run evals.
+- **Quality gates:** no type checker runs, and there is no eval gate in CI.
+
 ## What this is
 
 A runtime chassis on which role-based AI Employees are defined, run, and
@@ -808,8 +830,9 @@ from the registry at load time.
 
 ```python
 class RuntimeAdapter(Protocol):
-    def build(self, manifest: RoleManifest, packs: ResolvedPacks) -> RuntimeHandle:
-        """Construct runtime agents; called once per worker process."""
+    def build(self, resolved: ResolvedRole) -> RuntimeHandle:
+        """Construct runtime agents from the resolved role (manifest plus
+        resolved packs); called once per worker process."""
 
     async def run_turn(self, handle: RuntimeHandle, request: TurnRequest) -> TurnResult:
         """Execute one agent turn. Inside a workflow this may expand to
@@ -821,22 +844,23 @@ class RuntimeAdapter(Protocol):
         """Reduce history to within budget (may summarize via a model call).
         Invoked by chassis policy as an activity, between turns (D6a)."""
 
-@dataclass
-class TurnRequest:  # chassis-owned
+class TurnRequest(BaseModel):  # chassis-owned (pydantic, extra="forbid")
     agent: str                       # manifest agent name
     message: MessageEnvelope | None  # None for scheduled/task turns
     history: ConversationHistory     # opaque-to-chassis, serializable
-    context: TurnContext             # tenant, conversation id, run ids
+    context: TurnContext             # employee, tenant, conversation id, turn number
+    routing_note: str | None         # internal context from a route directive (D4)
+    prompt: str | None               # task turns: the task's standing prompt
+    decisions: list[ApprovalDecision]  # task turns: resuming an approval pause (D10)
 
-@dataclass
-class TurnResult:
-    directive: TurnDirective         # reply | route | escalate
+class TurnResult(BaseModel):
+    directive: TurnDirective         # reply | route | escalate | needs_approval
     history: ConversationHistory     # updated
-    events: list[TurnEvent]          # normalized tool calls, usage, timings
+    events: list[TurnEvent]          # normalized model requests, tool calls, tool outputs
 ```
 
-`MessageEnvelope`: `sender`, `tenant`, `conversation_id`, `content_parts`,
-`channel`, `metadata`. Channel adapters normalize to/from it; the core never
+`MessageEnvelope`: `sender`, `tenant`, `conversation_id`, `parts`,
+`channel`, `metadata`, `occurred_at`. Channel adapters normalize to/from it; the core never
 learns which channel it is on. Outbound delivery is idempotent per structured
 delivery key — see D15.
 
@@ -856,9 +880,10 @@ started_at / ended_at: datetime (UTC)
 
 ## Quality gates
 
-Typed throughout; ruff (format + lint) clean; pytest with coverage gate (≥80%); Temporal tests on the time-skipping environment
-where possible, real dev server where updates/CAN semantics demand it;
-import-linter contract in CI; eval gate in CI; conventional commits.
+Annotated throughout; ruff (format + lint) clean; pytest with coverage gate
+(≥80%); Temporal tests against a real local dev server (updates and CAN
+semantics demand it); import-linter contract in CI; conventional commits.
+Planned, not in place: a type checker and an eval gate in CI.
 
 ## Configuration contract
 
