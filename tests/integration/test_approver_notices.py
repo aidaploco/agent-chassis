@@ -114,7 +114,13 @@ async def test_conversation_escalation_notifies_approvers_not_the_customer(notif
     assert f"Conversation: {conversation}" in notice.text
 
     # It is not addressed to the customer's conversation, and nothing internal
-    # went through the customer-facing sender: that only carried the ack.
+    # went through the customer-facing sender: that only carried the ack. The
+    # ack is pushed after the update returns, so wait for it rather than race.
+    async def ack_delivered() -> None:
+        while not FAKE_DELIVERIES:
+            await asyncio.sleep(0.05)
+
+    await asyncio.wait_for(ack_delivered(), timeout=15)
     assert not notice.conversation_id.startswith("slack-")
     customer_facing = [d.text for d in FAKE_DELIVERIES]
     assert customer_facing and all("user asked" not in t for t in customer_facing)
