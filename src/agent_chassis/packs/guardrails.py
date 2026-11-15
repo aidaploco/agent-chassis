@@ -18,6 +18,14 @@ from agent_chassis.packs.base import (
     PackConfig,
 )
 from agent_chassis.utils.llm import complete
+from agent_chassis.utils.logger import get_logger
+
+_logger = get_logger(__name__)
+
+# Room for the one-word verdict plus whatever a model wraps around it. The
+# old cap of 3 could starve a model into returning nothing, which then read
+# as PASS.
+_VERDICT_MAX_TOKENS = 16
 
 
 class LengthConfig(PackConfig):
@@ -52,9 +60,15 @@ class LlmCheckConfig(PackConfig):
 
 async def _llm_verdict(
     config: LlmCheckConfig, system: str, text: str, context: Sequence[str] = ()
-) -> bool:
-    """True = flagged. Single cheap call, boolean protocol. Recent conversation lines are prepended so
-    the check judges the message in context, never in isolation."""
+) -> bool | None:
+    """True = flagged, False = passed, None = no readable verdict.
+
+    Single cheap call, FLAG/PASS protocol. Recent conversation lines are
+    prepended so the check judges the message in context, never in
+    isolation. Anything that is not exactly one of the two words (empty
+    output, a refusal, both words) is None — callers fail closed on it; a
+    guardrail that cannot be read must not wave the message through.
+    """
     user_content = text
     if context:
         user_content = (
@@ -67,9 +81,22 @@ async def _llm_verdict(
         " at higher sensitivity, flag borderline cases; at lower,"
         " only clear cases. Answer exactly FLAG or PASS.",
         user_content,
-        max_tokens=3,
+        max_tokens=_VERDICT_MAX_TOKENS,
     )
-    return "FLAG" in verdict.upper()
+    words = verdict.upper()
+    flagged, passed = "FLAG" in words, "PASS" in words
+    if flagged == passed:
+        _logger.warning("guardrail verdict unreadable (failing closed): %r", verdict)
+        return None
+    return flagged
+
+
+def _verdict(flagged: bool | None, reason: str) -> GuardrailVerdict:
+    if flagged is None:
+        return GuardrailVerdict(
+            passed=False, reason=f"{reason} check returned no readable verdict"
+        )
+    return GuardrailVerdict(passed=not flagged, reason=reason if flagged else None)
 
 
 class PromptInjectionGuardrail(GuardrailPack):
@@ -94,9 +121,7 @@ class PromptInjectionGuardrail(GuardrailPack):
             message.text,
             context,
         )
-        return GuardrailVerdict(
-            passed=not flagged, reason="prompt injection" if flagged else None
-        )
+        return _verdict(flagged, "prompt injection")
 
 
 class OffTopicConfig(LlmCheckConfig):
@@ -128,9 +153,7 @@ class OffTopicGuardrail(GuardrailPack):
             message.text,
             context,
         )
-        return GuardrailVerdict(
-            passed=not flagged, reason="off topic" if flagged else None
-        )
+        return _verdict(flagged, "off topic")
 
 
 BUILTIN_GUARDRAILS = (
