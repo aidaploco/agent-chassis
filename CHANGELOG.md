@@ -41,6 +41,19 @@ now refuse to**, which is why this is a minor bump rather than a patch.
 - Keyword retrieval matches per term (stop words ignored) and is fused with the
   semantic arm by reciprocal rank.
 - A reply the model returns as two identical text parts is sent once.
+- **Escalations and approval requests are pushed to a human.** When
+  `escalation.approvers_channel` is `slack` and `SLACK_APPROVERS_WEBHOOK_URL` is
+  set, a conversation escalation, a task pausing for approval, a task's final
+  escalation and every approval reminder send a notice (why, who with, which
+  conversation or task, the pending calls, how to decide). It uses its own
+  webhook, separate from the one customer replies use, and never derives a
+  channel from a conversation id. With `approvers_channel: http` (pull-based) or
+  no webhook, the worker now **warns at start** that nobody will be told.
+  Gated by `workflow.patched("notify-approvers")`: tasks already paused when you
+  upgrade will not send notices; new ones will.
+- The adapter builds agents with pydantic-ai's `TemporalDurability` capability
+  instead of the deprecated `TemporalAgent` wrapper. Activity names are
+  unchanged, and an in-flight conversation continued across the swap.
 
 ### Fixed
 
@@ -51,6 +64,9 @@ now refuse to**, which is why this is a minor bump rather than a patch.
   HTTP error, and crashed on a non-JSON judge reply.
 - Lana's billing agent cancelled subscriptions without asking why in 47% of
   sampled conversations (now 0 of 30).
+- The worker's own INFO log lines were silently dropped in containers (it runs
+  as `__main__`), including `worker started` and the `manifest_override` audit
+  lines. They now appear.
 
 ### Security and dependencies
 
@@ -60,7 +76,12 @@ now refuse to**, which is why this is a minor bump rather than a patch.
 - Bearer tokens are compared in constant time.
 - ruff 0.17 adopted; Dependabot version updates enabled.
 
-### Known
+### CI
 
-- `TemporalAgent` is deprecated by pydantic-ai in favour of `TemporalDurability`;
-  the adapter still uses it (warning only).
+- A nightly job runs Lana's eval suite on the real compose stack (3 runs per
+  case, 2 of 3 must pass). It needs the `OPENAI_API_KEY` repository secret and
+  is advisory, not part of the `ci-success` gate.
+
+### Not done
+
+- The Postgres audit table (D11), output validators (D5) and a type checker.

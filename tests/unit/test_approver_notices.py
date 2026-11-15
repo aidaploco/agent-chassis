@@ -1,6 +1,7 @@
 """Rendering, the sender's destination handling, and the start-up warnings."""
 
 import logging
+from pathlib import Path
 
 import httpx
 import pytest
@@ -13,8 +14,6 @@ from agent_chassis.durable.activities import render_notice
 from agent_chassis.durable.models import ApproverNotice
 from agent_chassis.manifest import load_manifest
 from agent_chassis.worker import build_approvers_sender
-
-from pathlib import Path
 
 EXAMPLES = Path(__file__).parents[2] / "examples"
 

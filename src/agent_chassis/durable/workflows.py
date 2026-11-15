@@ -23,9 +23,9 @@ with workflow.unsafe.imports_passed_through():
         TurnRequest,
     )
     from agent_chassis.durable.models import (
-        ApproverNotice,
         ApprovalRecord,
         ApprovalSignal,
+        ApproverNotice,
         ConversationParams,
         ConversationState,
         EscalationRecord,
