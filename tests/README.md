@@ -10,8 +10,8 @@ uv run pytest --cov          # CI gates at --cov-fail-under=80
 
 | Path | What it covers |
 |---|---|
-| [`unit/`](unit/) | Fast, no external services. Contracts, manifest validation, pack resolution, the pydantic-ai adapter, eval cases and graders, introspection, the Slack sender, the import-linter contract, and the **acceptance matrix**. (The builtin LLM guardrails and `utils/llm.py` have no unit tests.) |
-| [`integration/`](integration/) | Cross-component tests: channels, the conversation workflow end-to-end, and the pgvector memory substrate. |
+| [`unit/`](unit/) | Fast, no external services. Contracts, manifest validation, pack resolution, the pydantic-ai adapter, eval cases and graders, introspection, the builtin guardrails, the eval runner, the Slack sender, the HTTP sender identity, the import-linter contract, and the **acceptance matrix**. |
+| [`integration/`](integration/) | Cross-component tests: channels, the conversation and task workflows end-to-end (including history compaction and schedule sync) against a real Temporal dev server, and the pgvector memory substrate against a throwaway Postgres container. |
 | [`fixtures/`](fixtures/) | Shared test data (e.g. `lana.yaml`). |
 | [`conftest.py`](conftest.py) | Global fixtures — notably clearing the `get_settings` lru_cache around each test so monkeypatched env is read fresh. |
 

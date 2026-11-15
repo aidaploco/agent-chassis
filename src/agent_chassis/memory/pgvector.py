@@ -22,6 +22,18 @@ _logger = get_logger(__name__)
 _RRF_K = 60
 _MAX_KEYWORD_TERMS = 8
 _MIN_TERM_LENGTH = 3
+# Words that appear in almost every entry. As ILIKE terms they match nearly
+# everything, and because keyword hits win rank ties, "what did we decide
+# about the refund" would surface recent entries containing "the" ahead of
+# the semantically relevant ones.
+_STOP_WORDS = frozenset(
+    "about after all also and any are because been before but can could did "
+    "does doing done for from had has have her him his how into its just may "
+    "might more most must not now off once only other our out over she should "
+    "than that the their them then there these they this those too under "
+    "very was were what when where which while who whom why will with would "
+    "you your".split()
+)
 
 
 def _keyword_patterns(query: str) -> list[str]:
@@ -34,10 +46,14 @@ def _keyword_patterns(query: str) -> list[str]:
     terms: list[str] = []
     for raw in re.split(r"\s+", query.lower()):
         term = raw.strip(".,;:!?\"'()[]{}")
-        if len(term) >= _MIN_TERM_LENGTH and term not in terms:
+        if (
+            len(term) >= _MIN_TERM_LENGTH
+            and term not in _STOP_WORDS
+            and term not in terms
+        ):
             terms.append(term)
     if not terms and query.strip():
-        terms = [query.strip().lower()]
+        terms = [query.strip().lower()]  # nothing distinctive: match the phrase
     return [
         "%" + re.sub(r"([\\%_])", r"\\\1", term) + "%"
         for term in terms[:_MAX_KEYWORD_TERMS]
