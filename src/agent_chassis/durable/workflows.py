@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from datetime import UTC, timedelta
 
 from temporalio import workflow
-from temporalio.exceptions import ApplicationError
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from opentelemetry import context as otel_context
@@ -54,6 +55,11 @@ _TRANSCRIPT_WINDOW = 6
 _GUARDRAIL_ACTIVITY_TIMEOUT = timedelta(seconds=30)
 _EMIT_ACTIVITY_TIMEOUT = timedelta(seconds=10)
 _COMPACT_ACTIVITY_TIMEOUT = timedelta(seconds=120)
+# Push delivery is retried a bounded number of times (1s, 2s, 4s between
+# attempts). Temporal's default is unlimited retries, and the delivery is
+# awaited inside the turn loop — so one dead webhook would hold every later
+# turn of that conversation behind it forever.
+_DELIVERY_RETRY = RetryPolicy(maximum_attempts=4)
 
 
 def _absorb_usage_events(state: "ConversationState", events) -> None:
@@ -369,16 +375,26 @@ class ConversationWorkflow:
         sync channels already received it through the update result."""
         if envelope.channel not in self._runtime.push_senders:
             return
-        await workflow.execute_activity(
-            "deliver_reply",
-            OutboundDelivery(
-                key=f"{envelope.conversation_id}:turn:{reply.turn_number}",
-                channel=envelope.channel,
-                conversation_id=envelope.conversation_id,
-                text=reply.content,
-            ),
-            start_to_close_timeout=_EMIT_ACTIVITY_TIMEOUT,
-        )
+        key = f"{envelope.conversation_id}:turn:{reply.turn_number}"
+        try:
+            await workflow.execute_activity(
+                "deliver_reply",
+                OutboundDelivery(
+                    key=key,
+                    channel=envelope.channel,
+                    conversation_id=envelope.conversation_id,
+                    text=reply.content,
+                ),
+                start_to_close_timeout=_EMIT_ACTIVITY_TIMEOUT,
+                retry_policy=_DELIVERY_RETRY,
+            )
+        except ActivityError as exc:
+            # The turn itself succeeded and is in history; only the push was
+            # lost. Say so loudly and keep the conversation moving — raising
+            # here would fail the whole workflow over one undelivered reply.
+            workflow.logger.error(
+                "reply delivery failed permanently key=%s: %s", key, exc.cause or exc
+            )
 
     # -- policy helpers ------------------------------------------------------
 
@@ -536,7 +552,7 @@ class TaskWorkflow:
             workflow.logger.error("task agent produced a route directive")
             content, escalated = _FALLBACK_REPLY, False
 
-        await self._emit_task_outcome(runs)
+        await self._emit_task_outcome(runs, expired)
         return TaskReply(
             task=spec.name,
             content=content,
@@ -667,7 +683,15 @@ class TaskWorkflow:
             )
         return [decided[item.call_id] for item in items]
 
-    async def _emit_task_outcome(self, runs: int) -> None:
+    async def _emit_task_outcome(self, runs: int, expired: int) -> None:
+        # An approval nobody answered is its own outcome: the task did not
+        # get a human decision, which "escalated" (someone was asked) hides.
+        if expired:
+            resolution = Resolution.EXPIRED
+        elif self._state.escalations:
+            resolution = Resolution.ESCALATED
+        else:
+            resolution = Resolution.RESOLVED
         await workflow.execute_activity(
             "emit_outcome",
             _outcome_event(
@@ -676,11 +700,7 @@ class TaskWorkflow:
                 task_type=self._spec.name,
                 conversation_id=workflow.info().workflow_id,
                 state=self._state,
-                resolution=(
-                    Resolution.ESCALATED
-                    if self._state.escalations
-                    else Resolution.RESOLVED
-                ),
+                resolution=resolution,
                 turns=runs,
             ),
             start_to_close_timeout=_EMIT_ACTIVITY_TIMEOUT,

@@ -190,7 +190,7 @@ class FakeOutboundSender:
         FAKE_DELIVERIES.append(delivery)
 
 
-def _build_runtime(escalation: dict | None = None) -> RoleRuntime:
+def _build_runtime(escalation: dict | None = None, push_sender=None) -> RoleRuntime:
     registry = PackRegistry()
     registry.register(BillingPack())
     registry.register(SupportPack())
@@ -213,7 +213,7 @@ def _build_runtime(escalation: dict | None = None) -> RoleRuntime:
         resolved=resolved,
         adapter=adapter,
         handle=adapter.build(resolved),
-        push_senders={"slack": FakeOutboundSender()},
+        push_senders={"slack": push_sender or FakeOutboundSender()},
     )
 
 
@@ -236,12 +236,22 @@ async def env(settings):
         await environment.shutdown()
 
 
-def _chassis_fixture(escalation: dict | None = None):
+class DeadWebhookSender:
+    """A push target that is down: every delivery attempt fails."""
+
+    attempts = 0
+
+    async def deliver(self, delivery) -> None:
+        type(self).attempts += 1
+        raise RuntimeError("webhook unreachable")
+
+
+def _chassis_fixture(escalation: dict | None = None, push_sender=None):
     async def fixture(env):
         MODEL_CALLS.clear()
         FAKE_DELIVERIES.clear()
         GUARDRAIL_CONTEXTS.clear()
-        runtime = _build_runtime(escalation)
+        runtime = _build_runtime(escalation, push_sender)
         set_role_runtime(runtime)
         # Agents bind to ONE workflow class (PydanticAIPlugin registers
         # activities per class; both workflows share this worker).
@@ -265,6 +275,8 @@ chassis = pytest.fixture(_chassis_fixture())
 fast_expiry_chassis = pytest.fixture(
     _chassis_fixture({"remind_after": "PT1S", "expire_after": "PT2S"})
 )
+# Same chassis but the Slack push target is down.
+dead_webhook_chassis = pytest.fixture(_chassis_fixture(push_sender=DeadWebhookSender()))
 
 
 def _envelope(conversation_id: str, text: str) -> MessageEnvelope:
@@ -419,6 +431,42 @@ async def test_idle_timeout_emits_outcome(chassis):
     assert outcome.role == "lana" and outcome.task_type == "conversation"
 
 
+async def test_dead_push_target_does_not_block_the_conversation(dead_webhook_chassis):
+    """Delivery retries are bounded: a webhook that never comes back costs
+    the pushed reply, not every later turn of the conversation (the turn
+    loop awaits the delivery, and Temporal's default retries forever)."""
+    client, task_queue, _ = dead_webhook_chassis
+    DeadWebhookSender.attempts = 0
+    conversation = f"slack-{uuid.uuid4()}"
+
+    async def send(text: str) -> TurnReply:
+        start_op = WithStartWorkflowOperation(
+            ConversationWorkflow.run,
+            ConversationParams(
+                conversation_id=conversation, tenant="acme", channel="slack"
+            ),
+            id=f"conversation-{conversation}",
+            task_queue=task_queue,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        )
+        envelope = _envelope(conversation, text).model_copy(update={"channel": "slack"})
+        return await client.execute_update_with_start_workflow(
+            ConversationWorkflow.send_message,
+            envelope,
+            start_workflow_operation=start_op,
+        )
+
+    first = await send("first")
+    second = await asyncio.wait_for(send("second"), timeout=30)
+
+    assert (first.turn_number, second.turn_number) == (1, 2)
+    assert "second" in second.content
+    assert DeadWebhookSender.attempts >= 4  # turn 1's delivery gave up
+
+    handle = client.get_workflow_handle(f"conversation-{conversation}")
+    assert (await handle.describe()).status == WorkflowExecutionStatus.RUNNING
+
+
 # -- TaskWorkflow (D6/D10/D11) ------------------------------------------------
 
 
@@ -482,6 +530,8 @@ async def test_task_approval_expiry_denies(fast_expiry_chassis):
     record = activities.approval_records[0]
     assert not record.approved and record.approver == "system"
     assert "expired" in record.comment
+    # Nobody decided: the outcome says so instead of reading as "escalated".
+    assert activities.emitted_outcomes[-1].resolution == "expired"
 
 
 async def test_stale_or_unknown_approvals_do_not_leak(chassis):

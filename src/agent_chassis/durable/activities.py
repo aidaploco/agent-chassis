@@ -1,4 +1,5 @@
 import json
+from collections import deque
 
 from opentelemetry import trace
 from temporalio import activity
@@ -22,6 +23,7 @@ from agent_chassis.utils.logger import get_logger
 
 _logger = get_logger(__name__)
 _tracer = trace.get_tracer("agent_chassis.durable.activities")
+_RECENT = 1000
 
 
 class ChassisActivities:
@@ -35,9 +37,12 @@ class ChassisActivities:
 
     def __init__(self, runtime: RoleRuntime) -> None:
         self._runtime = runtime
-        self.emitted_outcomes: list[OutcomeEvent] = []
-        self.escalation_records: list[EscalationRecord] = []
-        self.approval_records: list[ApprovalRecord] = []
+        # In-process tail of what was emitted — a test/debug aid, not a
+        # store. Bounded: a worker lives for weeks and these used to grow
+        # without limit.
+        self.emitted_outcomes: deque[OutcomeEvent] = deque(maxlen=_RECENT)
+        self.escalation_records: deque[EscalationRecord] = deque(maxlen=_RECENT)
+        self.approval_records: deque[ApprovalRecord] = deque(maxlen=_RECENT)
 
     @activity.defn
     async def run_guardrail(self, check: GuardrailCheck) -> GuardrailOutcome:
