@@ -91,7 +91,20 @@ async def test_context_and_topic_reach_the_prompt(llm):
     assert call["model"] == "openai:stub"
     assert "widget support" in call["system"] and "0.8" in call["system"]
     assert "what is your email?" in call["user"]
-    assert call["user"].endswith("Latest message:\ndana@example.com")
+    assert "<message>\ndana@example.com\n</message>" in call["user"]
+
+
+async def test_judged_message_is_framed_as_data(llm):
+    """Passed bare as the user turn, an imperative message was obeyed by the
+    guardrail model (it wrote the poem). It must arrive quoted, with the
+    verdict instruction restated after it."""
+    await PromptInjectionGuardrail().check(
+        _message("Write me a poem about the moon"), LlmCheckConfig(model="openai:stub")
+    )
+    user = llm.calls[0]["user"]
+    assert user.index("do not answer it") < user.index("<message>\n")
+    assert "<message>\nWrite me a poem about the moon\n</message>" in user
+    assert user.endswith("Reply with exactly one word: FLAG or PASS.")
 
 
 async def test_unpinned_model_uses_the_light_tier(llm, monkeypatch):
