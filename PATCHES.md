@@ -7,4 +7,4 @@ by the conversation idle timeout plus margin.
 
 | Patch id | Introduced | Earliest removal | Status |
 |---|---|---|---|
-| _none active_ | | | |
+| `compaction-by-history-turns` | 2026-11-14 | 2026-11-21 (pre-patch runs end at their next continue-as-new or idle timeout) | active — `ConversationWorkflow._maybe_compact`: trigger on turns held in history instead of every `max_turns`-th turn |

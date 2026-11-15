@@ -384,3 +384,72 @@ async def test_under_budget_history_untouched():
         handle, result.history, HistoryBudget(max_turns=40, summary_max_tokens=128)
     )
     assert compacted == result.history
+
+
+async def test_compaction_counts_a_routed_turn_once():
+    """A routed turn puts the user's message in history once per hop. Those
+    are one turn, not several: max_turns must mean turns for a
+    supervisor-fronted role too."""
+
+    def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        if "You handle billing" in (messages[-1].instructions or ""):
+            return ModelResponse(parts=[TextPart("billing answer")])
+        tool = next(t for t in info.output_tools if "route" in t.name.lower())
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    tool.name, {"kind": "route", "target": "billing", "reason": "r"}
+                )
+            ]
+        )
+
+    adapter, handle = _adapter(fn)
+    history = ConversationHistory(runtime=RUNTIME_ID)
+    for turn in range(1, 4):  # every turn: supervisor routes, billing replies
+        text = f"invoice question {turn}"
+        routed = await adapter.run_turn(
+            handle, _request("supervisor", text, history=history, turn=turn)
+        )
+        assert isinstance(routed.directive, Route)
+        replied = await adapter.run_turn(
+            handle, _request("billing", text, history=routed.history, turn=turn)
+        )
+        history = replied.history
+
+    untouched = await adapter.compact_history(
+        handle, history, HistoryBudget(max_turns=3)
+    )
+    assert untouched == history  # 3 turns (6 user-prompt requests) fit a budget of 3
+
+    compacted = await adapter.compact_history(
+        handle, history, HistoryBudget(max_turns=2)
+    )
+    assert compacted.summary == "[1 earlier turns compacted]"
+    kept = "".join(str(entry) for entry in compacted.entries)
+    assert "invoice question 1" not in kept and "invoice question 2" in kept
+
+
+async def test_compaction_summary_is_a_running_total_and_reaches_the_agent():
+    seen: list[str] = []
+
+    def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(messages[-1].instructions or "")
+        return ModelResponse(parts=[TextPart("ok")])
+
+    adapter, handle = _adapter(fn)
+    history = ConversationHistory(runtime=RUNTIME_ID)
+    for turn in range(1, 8):
+        result = await adapter.run_turn(
+            handle,
+            _request("supervisor", f"message {turn}", history=history, turn=turn),
+        )
+        history = result.history
+        if turn in (4, 6):
+            history = await adapter.compact_history(
+                handle, history, HistoryBudget(max_turns=2)
+            )
+
+    # 2 dropped at turn 4, 2 more at turn 6: one marker, not one per compaction.
+    assert history.summary == "[4 earlier turns compacted]"
+    assert "earlier turns compacted" not in seen[0]  # nothing compacted yet
+    assert "[4 earlier turns compacted]" in seen[-1]

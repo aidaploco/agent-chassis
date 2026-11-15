@@ -20,6 +20,10 @@ class ConversationState(BaseModel):
     # is on-topic when the assistant just asked for an email).
     transcript: list[str] = Field(default_factory=list)
     turn_number: int = 0
+    # Turns currently held in `history` (clean turns since the last
+    # compaction, plus what compaction kept). Drives the D6a trigger;
+    # `turn_number` cannot, because refused turns add no history.
+    history_turns: int = 0
     started_at: datetime
     tool_calls: int = 0
     tokens_in: int = 0

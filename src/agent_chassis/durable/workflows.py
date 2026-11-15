@@ -55,6 +55,9 @@ _GUARDRAIL_ACTIVITY_TIMEOUT = timedelta(seconds=30)
 _EMIT_ACTIVITY_TIMEOUT = timedelta(seconds=10)
 _COMPACT_ACTIVITY_TIMEOUT = timedelta(seconds=120)
 
+# D14 patch ids — every entry here has a row in PATCHES.md.
+_PATCH_COMPACT_BY_HISTORY_TURNS = "compaction-by-history-turns"
+
 
 def _absorb_usage_events(state: "ConversationState", events) -> None:
     """Fold a turn's TurnEvents into the state's usage counters — shared by
@@ -143,6 +146,11 @@ class ConversationWorkflow:
             current_agent=manifest.routing.entry,
             started_at=workflow.now().astimezone(UTC),
         )
+        if params.resume is not None and not state.history_turns:
+            # Carried over from a run that predates the counter: assume the
+            # worst (every turn still in history) so the next clean turn
+            # compacts and the counter becomes exact.
+            state.history_turns = state.turn_number
         self._state = state
         self._queue: list[_PendingTurn] = []
         self._turns_this_run = 0
@@ -230,6 +238,7 @@ class ConversationWorkflow:
             self._state.transcript
             + [f"user: {envelope.text}", f"assistant: {reply.content}"]
         )[-_TRANSCRIPT_WINDOW:]
+        self._state.history_turns += 1
         await self._maybe_compact()
         return reply
 
@@ -384,16 +393,30 @@ class ConversationWorkflow:
 
     async def _maybe_compact(self) -> None:
         budget = self._manifest.runtime.history_budget
-        if (
-            self._state.turn_number > 0
-            and self._state.turn_number % budget.max_turns == 0
-        ):
-            self._state.history = await workflow.execute_activity(
-                "compact_history",
-                self._state.history,
-                result_type=ConversationHistory,
-                start_to_close_timeout=_COMPACT_ACTIVITY_TIMEOUT,
+        if workflow.patched(_PATCH_COMPACT_BY_HISTORY_TURNS):
+            # Compact once history holds a quarter more than the budget, back
+            # down to the budget: history stays within 1.25x max_turns, and
+            # compaction runs once per max_turns/4 turns rather than per turn.
+            slack = max(1, budget.max_turns // 4)
+            due = self._state.history_turns >= budget.max_turns + slack
+        else:
+            # Pre-patch trigger, kept for replay of older histories: every
+            # max_turns-th turn. It let history reach ~2x the budget (the
+            # first firing was a no-op) and skipped a firing entirely when
+            # that turn was refused by a guardrail.
+            due = (
+                self._state.turn_number > 0
+                and self._state.turn_number % budget.max_turns == 0
             )
+        if not due:
+            return
+        self._state.history = await workflow.execute_activity(
+            "compact_history",
+            self._state.history,
+            result_type=ConversationHistory,
+            start_to_close_timeout=_COMPACT_ACTIVITY_TIMEOUT,
+        )
+        self._state.history_turns = min(self._state.history_turns, budget.max_turns)
 
     def _should_roll_over(self) -> bool:
         if workflow.info().is_continue_as_new_suggested():
