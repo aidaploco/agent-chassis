@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic_ai import Agent
-from pydantic_ai.durable_exec.temporal import PydanticAIPlugin, TemporalAgent
+from pydantic_ai.durable_exec.temporal import PydanticAIPlugin, TemporalDurability
 from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
@@ -92,20 +92,20 @@ def _history_summary(ctx: RunContext[RoleDeps]) -> str:
 
 @dataclass
 class PydanticAIHandle(RuntimeHandle):
-    """Adapter-owned handle: one TemporalAgent per manifest agent.
+    """Adapter-owned handle: one durable Agent per manifest agent.
 
     Agent names (``{employee}_{agent}``) and toolset ids (capability instance
     ids) feed Temporal activity names — frozen once deployed (D1/D7).
     """
 
     employee: str
-    agents: dict[str, TemporalAgent[RoleDeps, Any]] = field(default_factory=dict)
+    agents: dict[str, Agent[RoleDeps, Any]] = field(default_factory=dict)
 
 
 class PydanticAIAdapter:
-    """RuntimeAdapter implementation on pydantic-ai + TemporalAgent.
+    """RuntimeAdapter implementation on pydantic-ai + TemporalDurability.
 
-    Outside a Temporal workflow, TemporalAgent runs like a plain agent —
+    Outside a Temporal workflow, the durability capability is transparent —
     which is why unit tests can drive this adapter without a server. Inside
     a workflow, model requests and non-pure tool calls become activities
     automatically.
@@ -140,7 +140,6 @@ class PydanticAIAdapter:
             gated_tools = set(manifest.escalation.approval_required_tools)
             hosts_gated = False
             toolsets: list[AbstractToolset[RoleDeps]] = []
-            tool_activity_config: dict[str, dict[str, Any]] = {}
             for capability_id in agent_spec.capabilities:
                 capability = resolved.capabilities[capability_id]
                 specs = capability.pack.tools(capability.config)
@@ -161,6 +160,9 @@ class PydanticAIAdapter:
                             spec.handler,
                             name=spec.name,
                             description=spec.description,
+                            # D1 per-tool opt-out: a pure tool runs in the
+                            # workflow instead of as an activity.
+                            metadata={"temporal": False} if spec.pure else None,
                         )
                         for spec in specs
                     ],
@@ -183,9 +185,6 @@ class PydanticAIAdapter:
                         ),
                     )
                 toolsets.append(toolset)
-                pure = {spec.name: False for spec in specs if spec.pure}
-                if pure:
-                    tool_activity_config[capability_id] = pure
 
             # Route is only offered where the manifest declares outgoing edges;
             # the chassis still validates targets (D4) — this just keeps the
@@ -211,10 +210,13 @@ class PydanticAIAdapter:
                     temperature=temperature, max_tokens=max_tokens
                 ),
                 toolsets=toolsets,
+                # Durability is a capability on a regular Agent (the
+                # TemporalAgent wrapper is deprecated). Activity names derive
+                # from the agent name and toolset ids exactly as before, so
+                # workflows started under the wrapper replay unchanged.
+                capabilities=[TemporalDurability()],
             )
-            handle.agents[agent_name] = TemporalAgent(
-                agent, tool_activity_config=tool_activity_config or None
-            )
+            handle.agents[agent_name] = agent
         return handle
 
     async def run_turn(self, handle: RuntimeHandle, request: TurnRequest) -> TurnResult:

@@ -98,6 +98,30 @@ class EscalationRecord(BaseModel):
     occurred_at: datetime
 
 
+class ApproverNotice(BaseModel):
+    """What a human needs to act on an escalation or an approval request (D10).
+
+    Built in the workflow (keys from deterministic values, D15) and sent by the
+    ``notify_approvers`` activity to ``escalation.approvers_channel``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    kind: Literal["escalation", "approval", "reminder"]
+    employee: str
+    tenant: str
+    # The conversation id (escalation) or the task workflow id (approval).
+    subject_id: str
+    agent: str
+    reason: str
+    # Conversations only: who the Employee was talking to, and on which channel.
+    requester: str | None = None
+    channel: str | None = None
+    # Tasks only: the calls waiting on a decision.
+    pending: list[ApprovalItem] = Field(default_factory=list)
+
+
 class TaskParams(BaseModel):
     """Start arguments for TaskWorkflow (D6). ``task`` names a manifest
     task; ``prompt_override`` lets a channel run it with an ad-hoc prompt."""

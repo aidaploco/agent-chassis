@@ -125,8 +125,25 @@ class SlackOutboundSender:
         webhook_url: str,
         max_seen: int = 4096,
         transport: httpx.AsyncBaseTransport | None = None,
+        *,
+        derive_channel: bool = True,
+        channel: str | None = None,
     ) -> None:
+        """
+        Args:
+            webhook_url: The Slack-compatible incoming webhook to post to.
+            derive_channel: Post to the channel named by the delivery's
+                conversation id (``slack-C42`` -> ``C42``). Right for replies;
+                wrong for anything that is not addressed to a conversation,
+                which must pass ``False`` so nothing can land in a customer's
+                channel by accident.
+            channel: A fixed channel to post to instead (only used when
+                ``derive_channel`` is False). Unset omits the field, so the
+                webhook's own channel applies.
+        """
         self._webhook_url = webhook_url
+        self._derive_channel = derive_channel
+        self._fixed_channel = channel
         self._seen: OrderedDict[str, None] = OrderedDict()
         self._max_seen = max_seen
         self._transport = transport
@@ -145,14 +162,15 @@ class SlackOutboundSender:
             async with httpx.AsyncClient(
                 timeout=10, transport=self._transport
             ) as client:
-                response = await client.post(
-                    self._webhook_url,
-                    json={
-                        "channel": delivery.conversation_id.removeprefix("slack-"),
-                        "text": delivery.text,
-                        "metadata": {"idempotency_key": delivery.key},
-                    },
-                )
+                payload: dict = {
+                    "text": delivery.text,
+                    "metadata": {"idempotency_key": delivery.key},
+                }
+                if self._derive_channel:
+                    payload["channel"] = delivery.conversation_id.removeprefix("slack-")
+                elif self._fixed_channel:
+                    payload["channel"] = self._fixed_channel
+                response = await client.post(self._webhook_url, json=payload)
                 response.raise_for_status()
         except BaseException:
             self._seen.pop(delivery.key, None)

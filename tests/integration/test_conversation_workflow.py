@@ -190,7 +190,9 @@ class FakeOutboundSender:
         FAKE_DELIVERIES.append(delivery)
 
 
-def _build_runtime(escalation: dict | None = None, push_sender=None) -> RoleRuntime:
+def _build_runtime(
+    escalation: dict | None = None, push_sender=None, approvers_sender=None
+) -> RoleRuntime:
     registry = PackRegistry()
     registry.register(BillingPack())
     registry.register(SupportPack())
@@ -215,6 +217,7 @@ def _build_runtime(escalation: dict | None = None, push_sender=None) -> RoleRunt
         adapter=adapter,
         handle=adapter.build(resolved),
         push_senders={"slack": push_sender or FakeOutboundSender()},
+        approvers_sender=approvers_sender,
     )
 
 
@@ -247,12 +250,14 @@ class DeadWebhookSender:
         raise RuntimeError("webhook unreachable")
 
 
-def _chassis_fixture(escalation: dict | None = None, push_sender=None):
+def _chassis_fixture(
+    escalation: dict | None = None, push_sender=None, approvers_sender=None
+):
     async def fixture(env):
         MODEL_CALLS.clear()
         FAKE_DELIVERIES.clear()
         GUARDRAIL_CONTEXTS.clear()
-        runtime = _build_runtime(escalation, push_sender)
+        runtime = _build_runtime(escalation, push_sender, approvers_sender)
         set_role_runtime(runtime)
         # Agents bind to ONE workflow class (PydanticAIPlugin registers
         # activities per class; both workflows share this worker).

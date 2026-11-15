@@ -17,8 +17,13 @@ left as decided; these parts of it are not in the code yet:
 - **D10:** the `WAITING_ON_HUMAN` wait exists for `TaskWorkflow` only. A
   conversation that escalates (by directive or by reaching an approval-gated
   tool) records the escalation and acknowledges it to the user. Guardrails
-  refuse; they do not escalate. Nothing is pushed to
-  `escalation.approvers_channel`.
+  refuse; they do not escalate. Escalations, approval pauses and reminders are
+  pushed to `escalation.approvers_channel` when it is `slack` and
+  `SLACK_APPROVERS_WEBHOOK_URL` is set (a separate webhook from the one
+  customers' replies use, so internal reasons cannot reach a customer);
+  with `http` (pull-based) they are logged only and the worker warns at start.
+  Decisions still arrive on `/v1/approvals`. Tasks paused before the
+  `notify-approvers` patch deployed stay silent until they finish.
 - **D11:** there is no Postgres audit table. Manifest overrides are logged
   at worker start; approval decisions are logged and written to the memory
   substrate as entries, before the workflow acts on them.
@@ -71,6 +76,17 @@ vendor-native handoffs would couple routing to the SDK (see D4).
 **Rejected: chassis-owned turn-as-single-activity (the prototype's
 pattern).** Simpler, proven, but loses per-model-call/per-tool-call durability
 and retry granularity, which this design requires.
+
+**Amended 2026-11-15 — `TemporalAgent` is deprecated.** pydantic-ai 2.68
+replaced the `TemporalAgent` wrapper with a `TemporalDurability` capability on a
+regular `Agent`, and the adapter now builds agents that way
+(`capabilities=[TemporalDurability()]`). The per-tool opt-out above is now tool
+metadata (`{"temporal": False}`) instead of `tool_activity_config`. Activity
+names still derive from the agent name and toolset ids, so the consequence
+above is unchanged. Verified by continuing an in-flight conversation on a
+worker running the new code (between turns; a worker killed mid-activity was not
+exercised). The paragraphs below describe the original wrapper and are left as
+decided.
 
 ### D2 — Runtime adapter seam: chassis owns the workflow shell
 
