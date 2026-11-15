@@ -39,7 +39,7 @@ audit-log every decision *before* acting on it (D10/D11).
 | [`runtime_context.py`](runtime_context.py) | `RoleRuntime`: the process-level "this worker hosts exactly one role" (D16) context that workflow code reads (set once at startup, identical across replays). |
 | [`codec.py`](codec.py) | `EncryptionCodec`: AES-256-GCM payload encryption (D9) so Temporal only ever stores ciphertext. |
 | [`converter.py`](converter.py) | Wires the pydantic data converter together with the codec — and **fails closed** if `TEMPORAL_PAYLOAD_CODEC_KEY` is unset (D9). |
-| [`schedules.py`](schedules.py) | Turns manifest `schedules` into Temporal Schedules that start `TaskWorkflow` on cron. Idempotent on every worker start. |
+| [`schedules.py`](schedules.py) | Syncs Temporal Schedules to the manifest's `schedules` on every worker start: creates, updates changed crons, and deletes ones the manifest no longer declares. |
 
 ## Determinism notes
 
