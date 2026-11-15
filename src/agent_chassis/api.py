@@ -30,7 +30,18 @@ def _substrate_provider(resolved):  # lazy start, cached
                 if not cache:
                     substrate = build_substrate(get_settings(), resolved.manifest)
                     if isinstance(substrate, PgVectorSubstrate):
-                        await substrate.start()
+                        try:
+                            await substrate.start()
+                        except Exception:
+                            # Introspection must not fail on a sick substrate:
+                            # serve without outcome history now, and retry the
+                            # connection on the next request (nothing cached).
+                            _logger.exception(
+                                "memory substrate unavailable — /v1/self"
+                                " serves without recent outcomes"
+                            )
+                            await substrate.close()
+                            return None
                     cache.append(substrate)
         return cache[0]
 

@@ -13,7 +13,8 @@ chassis, packs, or workflows knowing which substrate is bound (D22).
   classification of where content came from) and `author` (who wrote it).
 - [`pgvector.py`](pgvector.py) — `PgVectorSubstrate`, the one V1 implementation
   over Postgres + pgvector. Retrieval merges two arms — cosine similarity over
-  embeddings (semantic) and `ILIKE` (keyword) — deduplicated, semantic-first.
+  embeddings (semantic) and per-term `ILIKE` (keyword) — fused by reciprocal
+  rank, so a hit found by both arms ranks first.
   One table, `collection`-namespaced per employee. `start()` creates the table
   and applies boot-time column migrations.
 - [`pack.py`](pack.py) — the chassis-builtin `memory` capability pack:

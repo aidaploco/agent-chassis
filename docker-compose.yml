@@ -22,6 +22,9 @@ services:
       TEMPORAL_NAMESPACE: default
       TEMPORAL_TASK_QUEUE: agent-chassis
       TEMPORAL_PAYLOAD_CODEC_KEY: ${TEMPORAL_PAYLOAD_CODEC_KEY:?Set in .env — openssl rand -base64 32}
+      # Both units read memory: the worker writes and searches it, the api
+      # serves recent outcomes on /v1/self.
+      POSTGRES_URL: postgresql://chassis:chassis@postgres:5432/chassis
       MANIFEST_PATH: /app/role/manifest.yaml
       PACKS_DIR: /app/role/packs
       # The trace backend is deployment infrastructure: in a cluster the
@@ -39,15 +42,15 @@ services:
     depends_on:
       temporal:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
 
   worker:
     build: .
     command: ["python", "-m", "agent_chassis.worker"]
     env_file:
       - .env
-    environment:
-      <<: *chassis-env
-      POSTGRES_URL: postgresql://chassis:chassis@postgres:5432/chassis
+    environment: *chassis-env
     volumes:
       - ${ROLE_DIR:-./examples/skeleton}/manifest.yaml:/app/role/manifest.yaml:ro
       - ${ROLE_DIR:-./examples/skeleton}/packs:/app/role/packs:ro

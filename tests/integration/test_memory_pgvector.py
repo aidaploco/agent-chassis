@@ -4,6 +4,9 @@ The embedder is a deterministic fake (word-presence vector + bias term), so
 semantic ranking is testable without a model provider.
 """
 
+import os
+import shutil
+import socket
 import subprocess
 import time
 import uuid
@@ -13,7 +16,6 @@ import pytest
 
 from agent_chassis.memory.pgvector import PgVectorSubstrate
 
-_PORT = 55433
 _WORDS = ["billing", "invoice", "cats", "weather"]
 
 
@@ -27,6 +29,17 @@ class FakeEmbedder:
 
 @pytest.fixture(scope="module")
 def postgres_url():
+    docker_up = (
+        shutil.which("docker") is not None
+        and subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+    )
+    if not docker_up:
+        if os.environ.get("CI"):  # never let CI go green by skipping these
+            pytest.fail("Docker is required for the pgvector tests in CI")
+        pytest.skip("Docker is not running — pgvector tests need a container")
+    with socket.socket() as probe:  # a free port, not a fixed one
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
     name = f"chassis-pg-test-{uuid.uuid4().hex[:8]}"
     subprocess.run(
         [
@@ -43,13 +56,13 @@ def postgres_url():
             "-e",
             "POSTGRES_DB=test",
             "-p",
-            f"{_PORT}:5432",
+            f"127.0.0.1:{port}:5432",
             "pgvector/pgvector:pg17",
         ],
         check=True,
         capture_output=True,
     )
-    url = f"postgresql://test:test@localhost:{_PORT}/test"
+    url = f"postgresql://test:test@127.0.0.1:{port}/test"
     try:
         for _ in range(60):
             try:
@@ -105,6 +118,36 @@ async def test_keyword_arm_finds_semantic_misses(substrate):
     entries = await substrate.retrieve("SLA", limit=5)
 
     assert any("99.99%" in e.content for e in entries)
+
+
+async def test_keyword_hit_survives_a_full_semantic_page(substrate):
+    """Regression: the semantic arm always fills `limit`, and keyword rows
+    used to be appended after it and truncated away. The entry only the
+    keyword arm can find must still make the page."""
+    for n in range(3):
+        await substrate.record(
+            "knowledge", f"Cats fact {n}.", source="operator", author="ops"
+        )
+    await substrate.record(
+        "knowledge",
+        "Enterprise SLA is 99.99% uptime.",
+        source="operator",
+        author="ops",
+    )
+
+    # Semantically this query is about cats; "SLA" and "uptime" are literal.
+    entries = await substrate.retrieve("cats SLA uptime?", limit=3)
+
+    assert len(entries) == 3
+    assert any("99.99%" in e.content for e in entries)
+
+
+def test_keyword_wildcards_are_literal():
+    from agent_chassis.memory.pgvector import _keyword_patterns
+
+    assert _keyword_patterns("20%") == ["%20\\%%"]  # % escaped, not a wildcard
+    assert _keyword_patterns("a an") == ["%a an%"]  # no usable term: whole query
+    assert _keyword_patterns("SLA sla Sla?") == ["%sla%"]  # deduplicated
 
 
 async def test_kind_filter(substrate):
