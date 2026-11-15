@@ -8,11 +8,12 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from opentelemetry import trace
-from temporalio.exceptions import TemporalError
 from pydantic import BaseModel, ConfigDict
 from temporalio.client import Client, WithStartWorkflowOperation
 from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.contrib.opentelemetry import OpenTelemetryInterceptor
+from temporalio.exceptions import TemporalError
+from temporalio.service import RPCError, RPCStatusCode
 
 from agent_chassis.config import ChassisSettings, get_settings
 from agent_chassis.contracts import ContentPart, MessageEnvelope
@@ -115,6 +116,16 @@ class ChatResponse(BaseModel):
     escalated: bool
     guardrail_tripped: str | None
     tools_called: list[str] = []
+
+
+def _not_found_as_404(exc: RPCError, workflow_id: str) -> HTTPException | None:
+    """An unknown workflow id is the caller's error (404), not a server
+    fault (500). Anything else is left to propagate."""
+    if exc.status == RPCStatusCode.NOT_FOUND:
+        return HTTPException(
+            status_code=404, detail=f"no task workflow with id {workflow_id!r}"
+        )
+    return None
 
 
 def workflow_id_for(conversation_id: str) -> str:
@@ -267,7 +278,12 @@ def create_app(
         TaskReply once done."""
         client = await get_client()
         handle = client.get_workflow_handle_for(TaskWorkflow.run, workflow_id)
-        description = await handle.describe()
+        try:
+            description = await handle.describe()
+        except RPCError as exc:
+            if not_found := _not_found_as_404(exc, workflow_id):
+                raise not_found from exc
+            raise
         if description.status and description.status.name != "RUNNING":
             try:
                 return await handle.result()
@@ -286,15 +302,20 @@ def create_app(
         authenticated principal — the body cannot name someone else."""
         client = await get_client()
         handle = client.get_workflow_handle_for(TaskWorkflow.run, request.workflow_id)
-        await handle.signal(
-            TaskWorkflow.approve,
-            ApprovalSignal(
-                call_id=request.call_id,
-                approved=request.approved,
-                approver=principal,
-                comment=request.comment,
-            ),
-        )
+        try:
+            await handle.signal(
+                TaskWorkflow.approve,
+                ApprovalSignal(
+                    call_id=request.call_id,
+                    approved=request.approved,
+                    approver=principal,
+                    comment=request.comment,
+                ),
+            )
+        except RPCError as exc:
+            if not_found := _not_found_as_404(exc, request.workflow_id):
+                raise not_found from exc
+            raise
         return {"status": "delivered", "approver": principal}
 
     return app

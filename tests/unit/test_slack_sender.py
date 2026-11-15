@@ -1,4 +1,5 @@
 import httpx
+import pytest
 
 from agent_chassis.channels.base import OutboundDelivery
 from agent_chassis.channels.slack import SlackOutboundSender
@@ -57,3 +58,25 @@ async def test_seen_keys_are_bounded():
     # bound), newest keys still suppressed.
     await sender.deliver(_delivery("slack-C1:turn:3"))
     assert len(requests) == 4
+
+
+async def test_failed_delivery_is_retried_not_suppressed():
+    """A send that fails must not be remembered as delivered: the activity's
+    retry has to reach the webhook, or the reply is silently lost."""
+    statuses = iter([503, 200])
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(next(statuses))
+
+    sender = SlackOutboundSender(
+        "https://slack.example/webhook", transport=httpx.MockTransport(handler)
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await sender.deliver(_delivery("slack-C1:turn:1"))
+    await sender.deliver(_delivery("slack-C1:turn:1"))  # activity retry
+    await sender.deliver(_delivery("slack-C1:turn:1"))  # late duplicate
+
+    assert len(requests) == 2  # failed attempt + the one successful send

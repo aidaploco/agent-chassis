@@ -34,8 +34,9 @@ those identifiers so hard. Rename = new deployment.
   filters those out (`_is_directive_call`) so they never pollute `tools_called`,
   the outcome counters, or eval tool grading.
 - **The adapter runs fine outside Temporal.** `TemporalAgent` behaves like a
-  plain agent when not inside a workflow — which is exactly why unit tests and
-  the eval runner can drive it without a server.
+  plain agent when not inside a workflow — which is exactly why unit tests can
+  drive it without a server. (The eval runner does not: it goes over HTTP
+  against a running Employee.)
 
 The composition-root helpers `temporal_plugins()` and `bind_workflow_agents()`
 let [`worker.py`](../../worker.py) register the vendor's plugins and activities

@@ -91,9 +91,9 @@ class PydanticAIAdapter:
     """RuntimeAdapter implementation on pydantic-ai + TemporalAgent.
 
     Outside a Temporal workflow, TemporalAgent runs like a plain agent —
-    which is why evals and unit tests can drive this adapter without a
-    server. Inside a workflow, model requests and non-pure tool calls become
-    activities automatically.
+    which is why unit tests can drive this adapter without a server. Inside
+    a workflow, model requests and non-pure tool calls become activities
+    automatically.
     """
 
     def __init__(self, model: Model | str | None = None) -> None:

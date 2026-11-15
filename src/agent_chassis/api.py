@@ -1,7 +1,9 @@
 """HTTP process entrypoint: ``uvicorn agent_chassis.api:app``.
 
 Composes the enabled channel adapters over one lazy Temporal client and, when
-a manifest is mounted, the introspection endpoint. Importing does no I/O.
+a manifest is mounted, the introspection endpoint. Importing reads the
+manifest and loads the role's packs, but opens no network connection: the
+Temporal client and the memory substrate connect lazily on first use.
 """
 
 import asyncio

@@ -7,7 +7,7 @@ from agent_chassis.evals.cases import EvalCase
 class EvalExecution:
     """What actually happened when the case's final user message was run.
 
-    Produced by the eval runner driving the chassis (arrives with M3.5);
+    Produced by the eval runner (``runner.py``) driving a running Employee;
     graders only ever see this normalized summary, never vendor types.
     """
 

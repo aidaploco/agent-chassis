@@ -27,9 +27,9 @@ from agent_chassis.durable.converter import build_data_converter
 from agent_chassis.durable.runtime_context import RoleRuntime, set_role_runtime
 from agent_chassis.durable.schedules import ensure_schedules
 from agent_chassis.durable.workflows import ConversationWorkflow, TaskWorkflow
+from agent_chassis.manifest import load_manifest
 from agent_chassis.memory.pgvector import PgVectorSubstrate
 from agent_chassis.observability import setup_tracing
-from agent_chassis.manifest import load_manifest
 from agent_chassis.role_loader import build_substrate, load_role
 from agent_chassis.utils.logger import get_logger
 
