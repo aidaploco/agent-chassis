@@ -148,6 +148,13 @@ def test_keyword_wildcards_are_literal():
     assert _keyword_patterns("20%") == ["%20\\%%"]  # % escaped, not a wildcard
     assert _keyword_patterns("a an") == ["%a an%"]  # no usable term: whole query
     assert _keyword_patterns("SLA sla Sla?") == ["%sla%"]  # deduplicated
+    # Stop words match nearly every entry and would outrank real hits on ties.
+    assert _keyword_patterns("what did we decide about the refunds for Acme?") == [
+        "%decide%",
+        "%refunds%",
+        "%acme%",
+    ]
+    assert _keyword_patterns("what is the") == ["%what is the%"]  # all stop words
 
 
 async def test_kind_filter(substrate):
