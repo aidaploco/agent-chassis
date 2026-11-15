@@ -132,7 +132,7 @@ async def run_case(
                 force_json=True,
             )
             passed, reasoning = _parse_verdict(judged)
-        except Exception as exc:  # provider error: fail the grade, keep going
+        except Exception as exc:  # noqa: BLE001 - provider error: fail the grade, keep going
             passed, reasoning = False, f"judge call failed: {exc}"
         graders.append(GraderResult("quality", passed, reasoning))
 

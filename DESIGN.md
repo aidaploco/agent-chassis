@@ -844,19 +844,21 @@ class RuntimeAdapter(Protocol):
         """Reduce history to within budget (may summarize via a model call).
         Invoked by chassis policy as an activity, between turns (D6a)."""
 
+
 class TurnRequest(BaseModel):  # chassis-owned (pydantic, extra="forbid")
-    agent: str                       # manifest agent name
+    agent: str  # manifest agent name
     message: MessageEnvelope | None  # None for scheduled/task turns
-    history: ConversationHistory     # opaque-to-chassis, serializable
-    context: TurnContext             # employee, tenant, conversation id, turn number
-    routing_note: str | None         # internal context from a route directive (D4)
-    prompt: str | None               # task turns: the task's standing prompt
+    history: ConversationHistory  # opaque-to-chassis, serializable
+    context: TurnContext  # employee, tenant, conversation id, turn number
+    routing_note: str | None  # internal context from a route directive (D4)
+    prompt: str | None  # task turns: the task's standing prompt
     decisions: list[ApprovalDecision]  # task turns: resuming an approval pause (D10)
 
+
 class TurnResult(BaseModel):
-    directive: TurnDirective         # reply | route | escalate | needs_approval
-    history: ConversationHistory     # updated
-    events: list[TurnEvent]          # normalized model requests, tool calls, tool outputs
+    directive: TurnDirective  # reply | route | escalate | needs_approval
+    history: ConversationHistory  # updated
+    events: list[TurnEvent]  # normalized model requests, tool calls, tool outputs
 ```
 
 `MessageEnvelope`: `sender`, `tenant`, `conversation_id`, `parts`,

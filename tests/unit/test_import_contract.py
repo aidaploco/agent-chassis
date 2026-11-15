@@ -72,6 +72,7 @@ def _run_lint_imports(cwd: Path) -> subprocess.CompletedProcess[str]:
         cwd=cwd,
         capture_output=True,
         text=True,
+        check=False,  # the callers assert on returncode and output
         env={**os.environ, "COLUMNS": "250"},  # keep rich from wrapping the report
         timeout=120,
     )
