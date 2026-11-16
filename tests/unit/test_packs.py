@@ -148,7 +148,7 @@ def test_role_pack_may_replace_builtin(registry):
 
 
 def test_non_pack_rejected(registry):
-    with pytest.raises(PackError, match="neither"):
+    with pytest.raises(PackError, match="is not a"):
         registry.register(object())  # type: ignore[arg-type]
 
 

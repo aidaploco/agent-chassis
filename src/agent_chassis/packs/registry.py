@@ -9,7 +9,12 @@ from typing import Any, Literal
 from pydantic import ValidationError
 
 from agent_chassis.manifest.schema import RoleManifest
-from agent_chassis.packs.base import CapabilityPack, GuardrailPack, PackConfig
+from agent_chassis.packs.base import (
+    CapabilityPack,
+    GuardrailPack,
+    OutputGuardrailPack,
+    PackConfig,
+)
 from agent_chassis.utils.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -30,8 +35,12 @@ class ResolvedCapability:
 
 @dataclass(frozen=True)
 class ResolvedGuardrail:
-    pack: GuardrailPack
+    pack: GuardrailPack | OutputGuardrailPack
     config: PackConfig
+
+    @property
+    def stage(self) -> Literal["input", "output"]:
+        return "output" if isinstance(self.pack, OutputGuardrailPack) else "input"
 
 
 @dataclass(frozen=True)
@@ -55,6 +64,14 @@ class ResolvedRole:
     guardrails: list[ResolvedGuardrail]
     overrides: list[OverrideRecord] = field(default_factory=list)
     eval_case_dirs: list[Path] = field(default_factory=list)
+
+    @property
+    def input_guardrails(self) -> list[ResolvedGuardrail]:
+        return [g for g in self.guardrails if g.stage == "input"]
+
+    @property
+    def output_guardrails(self) -> list[ResolvedGuardrail]:
+        return [g for g in self.guardrails if g.stage == "output"]
 
     def missing_secrets(
         self, environ: Mapping[str, str] | None = None
@@ -124,19 +141,25 @@ class PackRegistry:
 
     def __init__(self) -> None:
         self._capabilities: dict[str, CapabilityPack] = {}
-        self._guardrails: dict[str, GuardrailPack] = {}
+        # Input and output guardrails share one namespace: the manifest names
+        # a guardrail by pack name alone, so the names must be unambiguous.
+        self._guardrails: dict[str, GuardrailPack | OutputGuardrailPack] = {}
 
     def register(
-        self, pack: CapabilityPack | GuardrailPack, *, replace: bool = False
+        self,
+        pack: CapabilityPack | GuardrailPack | OutputGuardrailPack,
+        *,
+        replace: bool = False,
     ) -> None:
         store: dict[str, Any]
         if isinstance(pack, CapabilityPack):
             store = self._capabilities
-        elif isinstance(pack, GuardrailPack):
+        elif isinstance(pack, GuardrailPack | OutputGuardrailPack):
             store = self._guardrails
         else:
             raise PackError(
-                f"{type(pack).__name__} is neither a CapabilityPack nor a GuardrailPack"
+                f"{type(pack).__name__} is not a CapabilityPack, GuardrailPack"
+                " or OutputGuardrailPack"
             )
         if pack.name in store:
             if not replace:

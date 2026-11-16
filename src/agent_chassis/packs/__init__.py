@@ -10,6 +10,8 @@ from agent_chassis.packs.base import (
     CapabilityPack,
     GuardrailPack,
     GuardrailVerdict,
+    OutputGuardrailPack,
+    OutputReply,
     PackConfig,
     ToolSpec,
 )
@@ -26,6 +28,8 @@ __all__ = [
     "CapabilityPack",
     "GuardrailPack",
     "GuardrailVerdict",
+    "OutputGuardrailPack",
+    "OutputReply",
     "OverrideRecord",
     "PackConfig",
     "PackError",

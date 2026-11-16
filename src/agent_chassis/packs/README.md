@@ -5,12 +5,13 @@ manifest — the thing that makes "new Employee = new YAML" possible. Packs are
 chassis-side and vendor-free (D2): a pack's tools are plain async callables;
 the runtime adapter converts them to vendor tools at build time.
 
-## Two kinds of pack
+## Three kinds of pack
 
 | Kind | Base class | Contributes | Runs as |
 |---|---|---|---|
 | **Capability** | `CapabilityPack` | Tools + an instruction fragment + a config model + its own eval suite | Tools run in the agent turn (as activities, or in-workflow if `pure=True`). |
 | **Guardrail** | `GuardrailPack` | A `check()` verdict on an inbound message | A chassis pre-flight activity, before the turn (D5). |
+| **Output guardrail** | `OutputGuardrailPack` | A `check()` verdict on a final reply | A chassis activity on the reply, before it is returned (D5). |
 
 A pack bundles *everything* it needs: tools, the instruction text that teaches
 an agent to use them, a `PackConfig` model whose field constraints *are* the
@@ -23,8 +24,9 @@ and rejected at build.
 
 ## Files
 
-- [`base.py`](base.py) — `CapabilityPack`, `GuardrailPack`, `ToolSpec`,
-  `PackConfig`, `GuardrailVerdict`. Start here to write a pack.
+- [`base.py`](base.py) — `CapabilityPack`, `GuardrailPack`,
+  `OutputGuardrailPack` / `OutputReply`, `ToolSpec`, `PackConfig`,
+  `GuardrailVerdict`. Start here to write a pack.
 - [`registry.py`](registry.py) — `PackRegistry`: discovers packs and
   `resolve()`s a manifest against them, validating every `config` block and
   recording each override vs the pack default (`OverrideRecord`, the D11 audit
@@ -47,6 +49,17 @@ and rejected at build.
   greetings; see D5.) The Anthropic SDK has no JSON mode, so there the same
   object is requested in the prompt and a bare `FLAG` / `PASS` is also read.
   `GuardrailPack.check` takes any `PackConfig`; subclasses narrow it inside.
+- [`output_guardrails.py`](output_guardrails.py) — the **builtin output
+  guardrails**: `reply_length` (`max_chars`, default 4000), `secret_leak`
+  (credential values the process holds in key/token/secret/password/webhook
+  variables, connection-string passwords, and well-known token shapes) and
+  `prompt_leak` (a verbatim run of `min_run_words`, default 30, from the agent's
+  own composed instructions). Deterministic by design: they run on every reply,
+  so an LLM judge here would add its cost and error rate to every answer. A
+  guardrail's reason and detail are logged and traced, so they must say what
+  tripped and never quote the reply. A manifest lists input and output
+  guardrails together in `guardrails`; the pack's class picks the side, and a
+  name is unique across both.
 
 ## How a pack reaches a role
 

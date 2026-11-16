@@ -31,7 +31,7 @@ runtime:    { model_tier, temperature, max_output_tokens, per_agent, history_bud
 capabilities: [ { pack, id?, config } ]      # config validated by the pack's own model
 routing:    { entry, agents, edges, max_hops_per_message }
 channels:   [ http | slack ]                 # only these two; slack also mounts the webhook route
-guardrails: [ { pack, config } ]             # overrides must satisfy the pack's bounds
+guardrails: [ { pack, config } ]             # input and output packs together; overrides must satisfy the pack's bounds
 memory:     { substrate: pgvector | none, collection }
 escalation: { approvers_channel, remind_after, expire_after, approval_required_tools }
 kpis:       { task_types }                   # `conversation` and/or declared task names

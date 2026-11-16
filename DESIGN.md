@@ -13,7 +13,6 @@ built.
 **Partly implemented (status as of 2026-11-16).** The decision text below is
 left as decided; these parts of it are not in the code yet:
 
-- **D5:** output-side validators. Only the input guardrails exist.
 - **D10:** the `WAITING_ON_HUMAN` wait exists for `TaskWorkflow` only. A
   conversation that escalates (by directive or by reaching an approval-gated
   tool) records the escalation and acknowledges it to the user. Guardrails
@@ -177,15 +176,15 @@ names another agent in prose).** Unauditable, unbounded, untestable.
 conversational continuity — the prototype's invisible-handoff UX requires
 the target to see everything the user said.
 
-### D5 — Guardrails: input as chassis pre-flight activities, output as validators
+### D5 — Guardrails: input and output as chassis activities
 
 **Decision.** Input guardrails (length, prompt-injection, off-topic — the
 standard trio) run as **chassis activities before the agent turn**: they are
 LLM calls needing durability and retry, they are parameterized per manifest
 (thresholds within schema-validated bounds), and they stay vendor-free so a
-guardrail pack survives a runtime swap. Output-side checks use pydantic-ai
-`output_validator` inside the adapter but are declared and configured through
-the same chassis guardrail interface, so the manifest sees one guardrail model.
+guardrail pack survives a runtime swap. Output-side checks were decided as pydantic-ai
+`output_validator`s inside the adapter, declared through the same chassis
+guardrail interface (see the 2026-11-16 amendment: built as activities instead).
 Every threshold override in a manifest is validated against the pack's declared
 bounds and written to the audit log (D11).
 
@@ -216,6 +215,39 @@ provider with no JSON mode) falls back to exactly one of the words. The
 passes. Measured on a labeled set (20 runs per message): 0 of 400 false positives
 on off-topic and 0 of 200 on injection, with every off-topic request and every
 injection caught. Evals now guard greetings (see D17).
+
+**Amended 2026-11-16 — output guardrails are chassis activities, not adapter
+validators.** A pydantic-ai `output_validator` runs inside the workflow
+sandbox, where I/O and model calls are not allowed, and a validator that can
+only look at the string cannot judge a reply against the agent's prompt or the
+process's secrets. The output side is therefore the mirror of the input side: a
+final reply is sent to a `run_output_guardrail` activity (retried, traced,
+vendor-free) before it is returned. The manifest keeps one `guardrails` list;
+the pack's base class (`GuardrailPack` or `OutputGuardrailPack`) decides which
+side it runs on, and pack names are unique across both. A tripped reply is
+replaced by a fixed fallback that does not say why, the whole exchange is
+dropped from the model's history and the guardrail transcript (so the next turn
+cannot repeat it), and it counts in the outcome's `guardrail_trips`. The one
+exception: if a tool ran during the turn, the history is kept, because erasing it
+would make the model forget an action it took (and offer to repeat it); the
+withheld reply then stays in the model's history, and the next reply is checked
+like any other. Escalation acknowledgements and the chassis fallback reply are
+fixed text and are not checked. Tasks check their final
+reply too (`TaskReply.guardrail_tripped`). Logs and spans carry the verdict
+and reason, never the reply (the adapter's own model spans still record what
+the model said, as they always did). Builtins are deterministic (an LLM judge on every
+reply would double the model cost and add a false-positive rate to every
+answer): `reply_length`, `secret_leak` (values of key/token/secret/password/
+webhook variables and connection-string passwords the process holds, plus
+well-known token shapes) and `prompt_leak` (a verbatim run of
+`min_run_words` words of the agent's composed instructions). Measured on Lana:
+no output guardrail tripped across two live passes of the 17-case suite at 3 runs
+per case (the first pass also had three `ReadTimeout`s from a cold start, the
+off-topic case is refused before any reply exists, and escalation acks are not
+checked), and 0 of 20 prompt-extraction attempts tripped, where the model itself refuses (the output layer is a
+backstop for the day it does not); the live path was exercised by a mutation (a
+200-character limit withheld 8 of 20 replies). Not built: regenerate-on-trip, and
+audit rows for trips (they count in the outcome and are logged).
 
 ### D6 — Two workflow types, one activity substrate
 

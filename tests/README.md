@@ -26,6 +26,9 @@ uv run pytest --cov          # CI gates at --cov-fail-under=80
   properties: the D13 turn queue ordering, the D3 continue-as-new rollover
   boundary, and messages answered in order across a forced rollover. It also
   holds the shared workflow fixtures other integration tests import.
+  It also covers output guardrails: a withheld reply is erased from history
+  (unless a tool ran), counts in the outcome, and a history recorded before the
+  feature still replays (the `output-guardrails` patch).
 - **`integration/test_audit_workflow.py`** and **`integration/test_audit_store.py`**
   — the audit stream (D11): an approval is not acted on until its audit row is
   written (a store outage stalls it), an outage never blocks an escalation, and

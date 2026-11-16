@@ -18,9 +18,12 @@ from agent_chassis.durable.models import (
     EscalationRecord,
     GuardrailCheck,
     GuardrailOutcome,
+    OutputCheck,
 )
 from agent_chassis.durable.runtime_context import RoleRuntime
 from agent_chassis.memory.base import DEFAULT_AUTHOR
+from agent_chassis.packs.base import GuardrailPack, OutputGuardrailPack, OutputReply
+from agent_chassis.packs.composition import compose_instructions
 from agent_chassis.utils.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -120,9 +123,10 @@ class ChassisActivities:
     async def run_guardrail(self, check: GuardrailCheck) -> GuardrailOutcome:
         resolved = next(
             g
-            for g in self._runtime.resolved.guardrails
+            for g in self._runtime.resolved.input_guardrails
             if g.pack.name == check.guardrail
         )
+        assert isinstance(resolved.pack, GuardrailPack)
         envelope = MessageEnvelope(
             sender=check.sender,
             tenant=check.tenant,
@@ -148,6 +152,54 @@ class ChassisActivities:
             span.set_attribute(
                 "output.value",
                 "pass" if verdict.passed else f"trip: {verdict.reason}",
+            )
+        return GuardrailOutcome(
+            guardrail=check.guardrail, passed=verdict.passed, reason=verdict.reason
+        )
+
+    @activity.defn
+    async def run_output_guardrail(self, check: OutputCheck) -> GuardrailOutcome:
+        """D5: judge one final reply before it reaches the user.
+
+        The span carries the verdict, never the reply: a tripped reply is the
+        thing that must not travel, so it stays out of traces and logs too.
+        """
+        resolved = next(
+            g
+            for g in self._runtime.resolved.output_guardrails
+            if g.pack.name == check.guardrail
+        )
+        assert isinstance(resolved.pack, OutputGuardrailPack)
+        resolved_role = self._runtime.resolved
+        reply = OutputReply(
+            text=check.reply,
+            agent=check.agent,
+            user_message=check.user_message,
+            instructions=compose_instructions(resolved_role, check.agent),
+            transcript=tuple(check.context),
+            employee=resolved_role.manifest.employee.name,
+        )
+        with _tracer.start_as_current_span(
+            f"guardrail {check.guardrail}",
+            attributes={
+                "openinference.span.kind": "GUARDRAIL",
+                "session.id": check.conversation_id,
+                "guardrail.stage": "output",
+            },
+        ) as span:
+            verdict = await resolved.pack.check(reply, resolved.config)
+            span.set_attribute("guardrail.passed", verdict.passed)
+            span.set_attribute(
+                "output.value",
+                "pass" if verdict.passed else f"trip: {verdict.reason}",
+            )
+        if not verdict.passed:
+            _logger.warning(
+                "output guardrail %s tripped conversation=%s agent=%s: %s",
+                check.guardrail,
+                check.conversation_id,
+                check.agent,
+                verdict.reason,
             )
         return GuardrailOutcome(
             guardrail=check.guardrail, passed=verdict.passed, reason=verdict.reason
@@ -347,6 +399,7 @@ class ChassisActivities:
     def all(self) -> list:
         return [
             self.run_guardrail,
+            self.run_output_guardrail,
             self.compact_history,
             self.emit_outcome,
             self.record_escalation,

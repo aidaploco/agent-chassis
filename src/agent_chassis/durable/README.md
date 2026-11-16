@@ -21,6 +21,7 @@ send_message (update, D3) ─► enqueue on FIFO turn queue (D13)
       _run_guardrails (pre-flight activities, D5)  ── trip? refuse
       _routing_loop  (walk the manifest graph, D4) ── reply / route / escalate
                       (escalate: record, audit, notify approvers, then ack the user)
+      _check_output  (output guardrails, D5)       ── trip? fixed fallback, exchange erased
       _maybe_compact (history budget, D6a)       ── once history holds 1.25x max_turns
    idle timeout ─► _emit_outcome (one OutcomeEvent, D12)
 ```
@@ -39,7 +40,7 @@ few retries so a dead webhook costs the notice and not the conversation.
 
 | File | Role |
 |---|---|
-| [`activities.py`](activities.py) | `ChassisActivities`: the vendor-free activities — guardrail checks, history compaction, outcome (log line, row, span; bounded retries) / escalation / approval emission, approver notices (`notify_approvers`, D10), memory write-back, outbound delivery. |
+| [`activities.py`](activities.py) | `ChassisActivities`: the vendor-free activities — input and output guardrail checks, history compaction, outcome (log line, row, span; bounded retries) / escalation / approval emission, approver notices (`notify_approvers`, D10), memory write-back, outbound delivery. |
 | [`models.py`](models.py) | Workflow-internal pydantic types: `ConversationState`/`Params`, `TaskParams`, `ApprovalSignal`/`Record`, `EscalationRecord`, `ApproverNotice`, `GuardrailCheck`/`Outcome`, the reply/status shapes. |
 | [`runtime_context.py`](runtime_context.py) | `RoleRuntime`: the process-level "this worker hosts exactly one role" (D16) context that workflow code reads (set once at startup, identical across replays): the resolved role, the adapter, the push senders, the approvers' sender, the memory substrate and the audit sink. |
 | [`codec.py`](codec.py) | `EncryptionCodec`: AES-256-GCM payload encryption (D9) so Temporal only ever stores ciphertext. |
@@ -55,6 +56,6 @@ queued turn and re-attached around processing (D19) — because the D13 queue
 decouples update handling from turn processing, without this every turn's spans
 would land in whichever trace was attached last. Behavior-changing edits to
 this code ship behind `workflow.patched()` (D14; ledger in `PATCHES.md`, which
-currently lists `compaction-by-history-turns` and `notify-approvers`). A change
+currently lists `compaction-by-history-turns`, `notify-approvers` and `output-guardrails`). A change
 that only alters an activity's input payload (not which commands the workflow
 issues) does not need one.
