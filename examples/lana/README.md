@@ -14,7 +14,8 @@ carry a real, multi-agent conversational role.
   "I don't have the catalog" (up to 29 of 30 runs for one phrasing). The direct
   edges plus a "not yours" line in each specialist's instructions fixed that.
 - **Guardrails:** the builtin trio (message length, prompt-injection,
-  off-topic) at Lana-specific thresholds/topic.
+  off-topic) at Lana-specific thresholds/topic, and the three output guardrails
+  (reply length 3000, secret leak, prompt leak) on every reply.
 - **Memory:** `pgvector`, collection `lana`.
 - **Runs on:** `ConversationWorkflow` (long-lived chat).
 

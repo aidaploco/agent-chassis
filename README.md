@@ -44,7 +44,7 @@ flowchart LR
 
 1. **`channels/http.py`** receives `POST /v1/messages`, builds a `MessageEnvelope`, and does an update-with-start (D3): the first message starts a `ConversationWorkflow`, later ones attach to the running one.
 2. **`durable/workflows.py`** enqueues it on an in-workflow FIFO queue (D13) so concurrent messages never interleave.
-3. **Guardrails (D5)**: each configured guardrail runs as its own activity; a trip short-circuits the turn with a refusal.
+3. **Guardrails (D5)**: each configured guardrail runs as its own activity; an input trip short-circuits the turn with a refusal, and an output trip replaces the reply with a fixed fallback and erases the exchange from history.
 4. **Routing loop (D4)**: the current agent runs a turn through the adapter and returns a directive; the chassis follows only edges the manifest declares.
 5. **`adapters/pydantic_ai/adapter.py`** is where the vendor agent executes.
 6. **Reply** returns through the update result (sync channels like HTTP) or is pushed by an outbound activity, idempotent per delivery key (async channels like Slack, D15).
@@ -200,7 +200,7 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 | **D2** | The adapter seam: the chassis is vendor-free; only `adapters/` imports the SDK. Enforced in CI. |
 | **D3** | Messages enter via Temporal update-with-start, so a reply can ride the result. |
 | **D4** | Routing is chassis-owned: agents emit structured directives; the chassis walks the graph. |
-| **D5** | Input guardrails run as pre-flight activities; output checks as validators. **Not built: output validators.** |
+| **D5** | Guardrails are chassis activities, not vendor hooks: input checks run before the turn (refuse), output checks (`reply_length`, `secret_leak`, `prompt_leak`) run on the final reply and withhold it (and drop the exchange from history). Output checks are deterministic. |
 | **D6 / D6a** | Two workflow types (conversation, task). Conversation history is workflow state; no session store. |
 | **D7** | Manifest schema v1: versioned, `extra="forbid"`, naming-stable identifiers, fail-closed. |
 | **D8** | Memory is retrieval plus write-back behind one interface (pgvector today). |

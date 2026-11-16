@@ -10,6 +10,7 @@ from agent_chassis.memory.embedder import OpenAIEmbedder
 from agent_chassis.memory.pack import MemoryPack
 from agent_chassis.memory.pgvector import PgVectorSubstrate
 from agent_chassis.packs.guardrails import BUILTIN_GUARDRAILS
+from agent_chassis.packs.output_guardrails import BUILTIN_OUTPUT_GUARDRAILS
 from agent_chassis.packs.registry import PackRegistry, ResolvedRole
 from agent_chassis.utils.logger import get_logger
 
@@ -27,6 +28,8 @@ def load_role(settings: ChassisSettings) -> ResolvedRole:
     registry.register(IntrospectionPack())
     for guardrail in BUILTIN_GUARDRAILS:  # reference guardrail trio (D5)
         registry.register(guardrail())
+    for output_guardrail in BUILTIN_OUTPUT_GUARDRAILS:  # and the output side
+        registry.register(output_guardrail())
     registry.discover()
     if settings.packs_dir:
         registry.load_directory(settings.packs_dir)

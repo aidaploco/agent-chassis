@@ -100,3 +100,41 @@ class GuardrailPack(ABC):
         answer to "what's your account email?". Packs that don't need
         context simply ignore it.
         """
+
+
+@dataclass(frozen=True)
+class OutputReply:
+    """What an output guardrail inspects: one reply, about to reach the user.
+
+    ``instructions`` is the composed system prompt of the agent that wrote
+    the reply, so a guardrail can tell whether the reply recites it.
+    """
+
+    text: str
+    agent: str
+    user_message: str
+    instructions: str = ""
+    transcript: Sequence[str] = ()
+    employee: str = ""
+
+
+class OutputGuardrailPack(ABC):
+    """An output guardrail, run by the chassis as an activity on a final reply
+    before it is returned to the user (D5).
+
+    Declared in the manifest's ``guardrails`` list like an input guardrail;
+    the pack's class decides which side it runs on. A tripped reply is
+    replaced by a fixed fallback and never reaches the user or the
+    guardrail transcript.
+    """
+
+    name: ClassVar[str]
+    config_model: ClassVar[type[PackConfig]] = PackConfig
+
+    @abstractmethod
+    async def check(self, reply: OutputReply, config: PackConfig) -> GuardrailVerdict:
+        """Return the verdict for one outbound reply.
+
+        ``detail`` and ``reason`` are logged and traced: they must describe
+        *what* tripped, never quote the reply.
+        """

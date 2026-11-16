@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+Adds output guardrails (D5). No upgrade steps; a role gets them by listing them
+in its manifest `guardrails`.
+
+- **Output guardrails (D5).** A new pack kind, `OutputGuardrailPack`, checks a
+  final reply before it is returned (conversations and tasks). A tripped reply is
+  replaced by a fixed fallback, the exchange is dropped from the model's history
+  and the guardrail transcript, and the trip counts in the outcome's
+  `guardrail_trips` (a task's reply carries `guardrail_tripped`). Logs and spans
+  carry the reason, never the reply. Three deterministic builtins: `reply_length`,
+  `secret_leak`, `prompt_leak`. Lana enables all three; no false trip in two live
+  passes of its 17-case eval suite (3 runs per case), and its greeting and
+  knowledge cases now assert the three pass. If a tool ran during the turn, a
+  withheld reply keeps the history so the model remembers the action.
+- Output checks run as a new `run_output_guardrail` activity behind the
+  `output-guardrails` workflow patch (PATCHES.md): runs in flight at deploy skip
+  them until they finish. Roles with no output guardrail are unaffected.
+- Input guardrail trips and output guardrail trips share one manifest list and one
+  name space; `ResolvedRole` gains `input_guardrails` / `output_guardrails`.
+
 ## 0.6.0 — 2026-11-16
 
 Adds the outcome table (D12). No upgrade steps: the worker creates

@@ -32,18 +32,24 @@ with workflow.unsafe.imports_passed_through():
         EscalationRecord,
         GuardrailCheck,
         GuardrailOutcome,
+        OutputCheck,
         TaskParams,
         TaskReply,
         TaskStatus,
         TurnReply,
     )
-    from agent_chassis.durable.runtime_context import get_role_runtime
+    from agent_chassis.durable.runtime_context import RoleRuntime, get_role_runtime
 
 _FALLBACK_REPLY = (
     "I wasn't able to complete that request. Please try rephrasing, or ask me"
     " something else."
 )
 _REFUSAL_REPLY = "I can't help with that request."
+# What replaces a reply an output guardrail stopped. Deliberately says nothing
+# about why: the reason names what the reply contained.
+_WITHHELD_REPLY = (
+    "I can't share that response. Please rephrase, or ask me something else."
+)
 _ESCALATION_ACK = (
     "I've escalated this to a human teammate — they'll follow up with you."
 )
@@ -65,6 +71,7 @@ _DELIVERY_RETRY = RetryPolicy(maximum_attempts=4)
 # D14 patch ids — every entry here has a row in PATCHES.md.
 _PATCH_COMPACT_BY_HISTORY_TURNS = "compaction-by-history-turns"
 _PATCH_NOTIFY_APPROVERS = "notify-approvers"
+_PATCH_OUTPUT_GUARDRAILS = "output-guardrails"
 
 # The outcome row is a metric: retry through a Postgres restart (about 3 minutes
 # of attempts), then give up loudly rather than hold the workflow open. The log
@@ -119,6 +126,44 @@ async def _notify_approvers(notice: "ApproverNotice") -> None:
             notice.key,
             exc.cause or exc,
         )
+
+
+async def _check_output(
+    runtime: "RoleRuntime",
+    *,
+    conversation_id: str,
+    agent: str,
+    user_message: str,
+    content: str,
+    context: list[str],
+    skip: bool = False,
+) -> GuardrailOutcome | None:
+    """Run the role's output guardrails on a final reply (D5).
+
+    Gated by a patch id so runs started before the feature existed replay
+    without the new activity commands. ``skip`` is for chassis-written
+    replies (the escalation ack), which are fixed text.
+    """
+    guardrails = runtime.resolved.output_guardrails
+    if skip or not guardrails or not workflow.patched(_PATCH_OUTPUT_GUARDRAILS):
+        return None
+    for resolved in guardrails:
+        outcome: GuardrailOutcome = await workflow.execute_activity(
+            "run_output_guardrail",
+            OutputCheck(
+                guardrail=resolved.pack.name,
+                conversation_id=conversation_id,
+                agent=agent,
+                user_message=user_message,
+                reply=content,
+                context=context,
+            ),
+            result_type=GuardrailOutcome,
+            start_to_close_timeout=_GUARDRAIL_ACTIVITY_TIMEOUT,
+        )
+        if not outcome.passed:
+            return outcome
+    return None
 
 
 def _absorb_usage_events(state: "ConversationState", events) -> None:
@@ -293,7 +338,37 @@ class ConversationWorkflow:
                 guardrail_tripped=tripped.guardrail,
             )
 
+        history_start = self._state.history
         reply = await self._routing_loop(envelope, turn_number)
+        withheld = await _check_output(
+            self._runtime,
+            conversation_id=envelope.conversation_id,
+            agent=reply.agent,
+            user_message=envelope.text,
+            content=reply.content,
+            context=self._state.transcript,
+            skip=reply.escalated or reply.content == _FALLBACK_REPLY,
+        )
+        if withheld is not None:
+            self._state.guardrail_trips += 1
+            if any(e.kind == "tool_call" for e in reply.events):
+                # A tool ran: erasing the exchange would make the model forget
+                # an action it took (a cancelled subscription it then offers to
+                # cancel again). Keep the history, and the withheld reply with
+                # it; the next reply is checked like any other.
+                self._state.history_turns += 1
+                await self._maybe_compact()
+            else:
+                # Nothing happened but the reply: drop the whole exchange so
+                # the model never sees (or repeats) it.
+                self._state.history = history_start
+            return TurnReply(
+                content=_WITHHELD_REPLY,
+                agent=reply.agent,
+                turn_number=turn_number,
+                guardrail_tripped=withheld.guardrail,
+                events=reply.events,
+            )
         # Only clean turns feed future guardrail context — refused messages
         # must not smuggle their content back in through the side door.
         self._state.transcript = (
@@ -307,7 +382,7 @@ class ConversationWorkflow:
     async def _run_guardrails(
         self, envelope: MessageEnvelope
     ) -> GuardrailOutcome | None:
-        for resolved in self._runtime.resolved.guardrails:
+        for resolved in self._runtime.resolved.input_guardrails:
             outcome: GuardrailOutcome = await workflow.execute_activity(
                 "run_guardrail",
                 GuardrailCheck(
@@ -636,8 +711,20 @@ class TaskWorkflow:
             runs += 1
 
         directive = result.directive
+        guardrail_tripped: str | None = None
         if isinstance(directive, Reply):
             content, escalated = directive.content, False
+            withheld = await _check_output(
+                self._runtime,
+                conversation_id=workflow.info().workflow_id,
+                agent=spec.agent,
+                user_message=params.prompt_override or spec.prompt,
+                content=content,
+                context=[],
+            )
+            if withheld is not None:
+                content, guardrail_tripped = _WITHHELD_REPLY, withheld.guardrail
+                self._state.guardrail_trips += 1
         elif isinstance(directive, Escalate):
             self._state.escalations += 1
             await workflow.execute_activity(
@@ -675,6 +762,7 @@ class TaskWorkflow:
             content=content,
             agent=spec.agent,
             escalated=escalated,
+            guardrail_tripped=guardrail_tripped,
             approvals=approvals,
             denials=denials,
             expired=expired,

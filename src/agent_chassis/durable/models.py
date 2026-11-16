@@ -77,6 +77,19 @@ class GuardrailCheck(BaseModel):
     context: list[str] = Field(default_factory=list)
 
 
+class OutputCheck(BaseModel):
+    """Input to the run_output_guardrail activity: one reply about to be sent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    guardrail: str
+    conversation_id: str
+    agent: str
+    user_message: str
+    reply: str
+    context: list[str] = Field(default_factory=list)
+
+
 class GuardrailOutcome(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -186,6 +199,8 @@ class TaskReply(BaseModel):
     content: str
     agent: str
     escalated: bool = False
+    # Name of the output guardrail that replaced the reply, if one did.
+    guardrail_tripped: str | None = None
     approvals: int = 0
     denials: int = 0
     expired: int = 0

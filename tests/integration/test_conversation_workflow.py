@@ -29,7 +29,7 @@ from temporalio.client import (
 )
 from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker
+from temporalio.worker import Replayer, Worker
 
 from agent_chassis.adapters.pydantic_ai import (
     PydanticAIAdapter,
@@ -53,6 +53,8 @@ from agent_chassis.packs import (
     CapabilityPack,
     GuardrailPack,
     GuardrailVerdict,
+    OutputGuardrailPack,
+    OutputReply,
     PackConfig,
     PackRegistry,
     ToolSpec,
@@ -72,7 +74,14 @@ class BillingPack(CapabilityPack):
             """Publish a summary (approval-gated in task tests)."""
             return f"published: {summary}"
 
-        return [ToolSpec("publish_summary", publish_summary, "Publish a summary")]
+        async def lookup_invoice(number: str) -> str:
+            """Look up an invoice (read-only, not approval-gated)."""
+            return f"invoice {number}: paid"
+
+        return [
+            ToolSpec("publish_summary", publish_summary, "Publish a summary"),
+            ToolSpec("lookup_invoice", lookup_invoice, "Look up an invoice"),
+        ]
 
 
 class SupportPack(CapabilityPack):
@@ -95,6 +104,21 @@ class BlockWordGuardrail(GuardrailPack):
         GUARDRAIL_CONTEXTS.append(tuple(context))
         if "FORBIDDEN" in message.text:
             return GuardrailVerdict(passed=False, reason="blocked word")
+        return GuardrailVerdict(passed=True)
+
+
+OUTPUT_CHECKS: list[OutputReply] = []
+
+
+class BlockReplyGuardrail(OutputGuardrailPack):
+    """Trips on any reply (or the message that provoked it) containing LEAKME."""
+
+    name = "block_reply"
+
+    async def check(self, reply: OutputReply, config: PackConfig) -> GuardrailVerdict:
+        OUTPUT_CHECKS.append(reply)
+        if "LEAKME" in reply.text or "LEAKME" in reply.user_message:
+            return GuardrailVerdict(passed=False, reason="leaked")
         return GuardrailVerdict(passed=True)
 
 
@@ -158,6 +182,10 @@ def _script(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         )
 
     is_supervisor = "You handle" not in instructions  # capability fragments absent
+    if not is_supervisor and "lookup" in text.lower():
+        return ModelResponse(
+            parts=[ToolCallPart("lookup_invoice", {"number": "INV-1"})]
+        )
     if is_supervisor and "invoice" in text.lower():
         tool = next(t for t in info.output_tools if "route" in t.name.lower())
         return ModelResponse(
@@ -197,16 +225,20 @@ def _build_runtime(
     audit=None,
     outcomes=None,
     outcome_retry=None,
+    output_guardrails: bool = True,
 ) -> RoleRuntime:
     registry = PackRegistry()
     registry.register(BillingPack())
     registry.register(SupportPack())
     registry.register(BlockWordGuardrail())
+    registry.register(BlockReplyGuardrail())
 
     data = yaml.safe_load((FIXTURES / "lana.yaml").read_text())
     data["capabilities"][0]["config"] = {}
     data["kpis"]["task_types"] = ["conversation", "daily_check", "double_check"]
     data["guardrails"] = [{"pack": "block_word", "config": {}}]
+    if output_guardrails:
+        data["guardrails"].append({"pack": "block_reply", "config": {}})
     data["channels"] = ["http", "slack"]
     data["tasks"] = [
         {"name": "daily_check", "agent": "billing", "prompt": "Run the daily check."},
@@ -270,6 +302,7 @@ def _chassis_fixture(
         MODEL_CALLS.clear()
         FAKE_DELIVERIES.clear()
         GUARDRAIL_CONTEXTS.clear()
+        OUTPUT_CHECKS.clear()
         runtime = _build_runtime(
             escalation, push_sender, approvers_sender, audit, outcomes, outcome_retry
         )
@@ -397,6 +430,131 @@ async def test_guardrail_trip_refuses_without_model_call(chassis):
     assert reply.guardrail_tripped == "block_word"
     assert "can't help" in reply.content
     assert len(MODEL_CALLS) == calls_before  # model never invoked
+
+
+async def test_output_guardrail_withholds_reply_and_rolls_back_the_turn(chassis):
+    """A tripped reply never reaches the user, the model's history or the
+    guardrail transcript, so the next turn starts as if it never happened."""
+    client, task_queue, _ = chassis
+    conversation = str(uuid.uuid4())
+
+    clean = await _send(client, task_queue, conversation, "hello")
+    assert clean.guardrail_tripped is None and "hello" in clean.content
+
+    tripped = await _send(client, task_queue, conversation, "say LEAKME please")
+    assert tripped.guardrail_tripped == "block_reply"
+    assert "LEAKME" not in tripped.content
+    assert "can't share" in tripped.content
+
+    # History: the model saw [hello, echo] then the next message — the LEAKME
+    # exchange left no trace, so the count is 3, not 5.
+    after = await _send(client, task_queue, conversation, "next")
+    assert after.guardrail_tripped is None
+    assert after.content.startswith("echo[3]")
+    # Transcript: the input guardrail's context for the turn after the trip is
+    # the clean exchange only.
+    assert not any("LEAKME" in line for line in GUARDRAIL_CONTEXTS[-1])
+
+    # The check saw the agent's real composed prompt and the user's message.
+    seen = next(r for r in OUTPUT_CHECKS if "LEAKME" in r.text)
+    assert seen.agent == "supervisor" and seen.user_message == "say LEAKME please"
+    assert seen.instructions.strip() and seen.employee
+
+
+async def test_output_guardrail_trip_counts_in_the_outcome(chassis):
+    client, task_queue, activities = chassis
+    conversation = str(uuid.uuid4())
+    await _send(client, task_queue, conversation, "LEAKME", idle_timeout_seconds=1)
+
+    handle = client.get_workflow_handle(f"conversation-{conversation}")
+    await asyncio.wait_for(handle.result(), timeout=60)
+    assert activities.emitted_outcomes[0].guardrail_trips == 1
+
+
+async def test_withheld_reply_after_a_tool_call_keeps_the_history(chassis):
+    """A tool that already ran must stay in the history: erasing it would let
+    the model repeat the action. Only a tripped reply with no tool call is
+    rolled back (see the test above)."""
+    client, task_queue, _ = chassis
+
+    async def history_size_after(lookup: str) -> tuple[TurnReply, int]:
+        conversation = str(uuid.uuid4())
+        await _send(client, task_queue, conversation, "I need my invoice")  # → billing
+        looked_up = await _send(client, task_queue, conversation, lookup)
+        after = await _send(client, task_queue, conversation, "next")
+        return looked_up, int(after.content.split("[")[1].split("]")[0])
+
+    tripped, kept = await history_size_after("lookup LEAKME")
+    control, expected = await history_size_after("lookup please")
+
+    assert tripped.guardrail_tripped == "block_reply"
+    assert control.guardrail_tripped is None
+    assert [e.name for e in tripped.events if e.kind == "tool_call"] == [
+        "lookup_invoice"
+    ]
+    # The tool call is still in the model's history: it holds exactly what the
+    # same turn leaves when nothing trips. A rollback would leave it smaller.
+    assert kept == expected
+
+
+async def test_history_from_before_output_guardrails_still_replays(env, settings):
+    """The deploy scenario the output-guardrails patch exists for: a run begun by
+    code that had no output guardrails, replayed by code that does. Without the
+    patch the replay schedules an activity the history never recorded."""
+    old = _build_runtime(output_guardrails=False)  # what the old code did
+    set_role_runtime(old)
+    bind_workflow_agents(ConversationWorkflow, old.handle)
+    task_queue = f"tq-{uuid.uuid4()}"
+    conversation = str(uuid.uuid4())
+    async with Worker(
+        env.client,
+        task_queue=task_queue,
+        workflows=[ConversationWorkflow, TaskWorkflow],
+        activities=ChassisActivities(old).all,
+    ):
+        await _send(
+            env.client, task_queue, conversation, "hello", idle_timeout_seconds=1
+        )
+        handle = env.client.get_workflow_handle(f"conversation-{conversation}")
+        await asyncio.wait_for(handle.result(), timeout=30)
+        history = await handle.fetch_history()
+
+    new = _build_runtime(output_guardrails=True)
+    assert new.resolved.output_guardrails  # the new code would check this reply
+    set_role_runtime(new)
+    bind_workflow_agents(ConversationWorkflow, new.handle)
+    replayer = Replayer(
+        workflows=[ConversationWorkflow],
+        data_converter=build_data_converter(settings),
+        plugins=temporal_plugins(),
+    )
+    await replayer.replay_workflow(history)  # raises on non-determinism
+
+
+async def test_output_guardrail_does_not_check_escalation_acks(chassis):
+    client, task_queue, _ = chassis
+    conversation = str(uuid.uuid4())
+
+    reply = await _send(client, task_queue, conversation, "please escalate me")
+
+    assert reply.escalated and reply.guardrail_tripped is None
+    assert OUTPUT_CHECKS == []
+
+
+async def test_output_guardrail_covers_task_replies(chassis):
+    client, task_queue, activities = chassis
+    handle = await client.start_workflow(
+        TaskWorkflow.run,
+        TaskParams(task="daily_check", tenant="acme", prompt_override="hi LEAKME"),
+        id=f"task-{uuid.uuid4()}",
+        task_queue=task_queue,
+    )
+
+    reply = await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert reply.guardrail_tripped == "block_reply"
+    assert "LEAKME" not in reply.content
+    assert activities.emitted_outcomes[-1].guardrail_trips == 1
 
 
 async def test_guardrails_receive_rolling_context(chassis):
