@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.15-slim
 
 # Pinned, not :latest: an unpinned tool image makes the build unreproducible
 # (CI pins its actions by SHA for the same reason). Bump deliberately.
