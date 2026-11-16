@@ -36,11 +36,9 @@ jobs:
         # 3.13 is the declared floor (requires-python); 3.15 is what the
         # Docker image runs (Dependabot bumped it), so what ships is tested.
         python-version: ["3.13", "3.15"]
-    # The floor leg keeps the plain name "test": branch protection on main still
-    # requires a check called `test` (alongside lint and secrets), and a renamed
-    # check would never report, blocking every merge. Other legs are labelled by
-    # version; ci-success aggregates them all.
-    name: ${{ matrix.python-version == '3.13' && 'test' || format('test (python {0})', matrix.python-version) }}
+    # main requires only `ci-success`, which aggregates every leg, so legs can
+    # be named freely (and a new Python version is one more matrix entry).
+    name: test (python ${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
