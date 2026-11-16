@@ -13,8 +13,9 @@
   refresh in 0.4.0 caused it; nothing exercised the path. It is fixed and
   covered by tests against a mock transport (OpenAI path too). Anthropic
   verdicts now use the provider's default temperature.
-- The Docker base image is Python 3.15 (Dependabot); CI and `.python-version`
-  still use 3.13.
+- The Docker base image is Python 3.15 (Dependabot). CI now tests both 3.13 (the
+  declared floor) and 3.15 (what ships), and a test fails if the image's Python
+  version is ever missing from the CI matrix.
 - The nightly eval job is skipped on Dependabot PRs (no secrets there).
 
 ## 0.4.0 — 2026-11-15
