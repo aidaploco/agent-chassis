@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Tools run at-least-once; `idempotency_key()` lets them cope.** A worker killed
+  after a tool did its work but before Temporal recorded it re-runs the tool: measured
+  with a ticket-creating tool, the retry made a second ticket. New
+  `agent_chassis.packs.idempotency_key()` returns a key that is the same on every
+  attempt of one tool call and different for every other call; a tool passes it to the
+  system it writes to, or derives its record id from it. The example ticket tool now
+  does, and a repeat of the kill experiment produced one ticket. The chassis does not
+  enforce it: a tool that ignores the key is unchanged. Also verified: a worker killed
+  mid-turn (during a guardrail check or a model request) loses no conversation (12 of 12
+  recovered, in 36 to 39s), and the Anthropic provider path passes Lana's eval suite
+  (17 of 17 cases, 3 runs each). See DESIGN D1 and `packs/README.md`.
 - **Python 3.15 is now the only supported version.** `requires-python` is `>=3.15`
   (it was `>=3.13`), matching the container image, which already ran 3.15; CI,
   pyright and `.python-version` follow. Installing the package on 3.13 or 3.14 is

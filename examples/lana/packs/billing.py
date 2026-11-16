@@ -145,6 +145,9 @@ class BillingPack(CapabilityPack):
                     reason. If they have not said why, do not call this tool:
                     ask them first.
             """
+            # Demo data, so this changes nothing and is safe to repeat. A real
+            # cancellation runs at-least-once (see packs.idempotency_key) and must
+            # pass that key to the billing system so a retry cannot cancel twice.
             if _NOT_A_REASON.match(customer_stated_reason_verbatim.strip()):
                 return _NEEDS_REASON
             account = _ACCOUNTS.get(email.lower())

@@ -23,6 +23,7 @@ from agent_chassis.packs.registry import (
     ResolvedGuardrail,
     ResolvedRole,
 )
+from agent_chassis.utils.idempotency import idempotency_key
 
 __all__ = [
     "CapabilityPack",
@@ -38,4 +39,5 @@ __all__ = [
     "ResolvedGuardrail",
     "ResolvedRole",
     "ToolSpec",
+    "idempotency_key",
 ]

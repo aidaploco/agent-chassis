@@ -61,6 +61,32 @@ and rejected at build.
   guardrails together in `guardrails`; the pack's class picks the side, and a
   name is unique across both.
 
+## Tools run at least once
+
+A tool runs as a Temporal activity (unless `pure=True`). If the worker dies after
+the tool did its work but before Temporal recorded the result, the call runs again
+from the start. Measured: a ticket-creating tool, killed right after it committed,
+created a second ticket on retry. A tool with a side effect (create, charge, send,
+cancel) must therefore tolerate being run twice.
+
+`idempotency_key()` (from `agent_chassis.packs`) returns a string that is the same on
+every attempt of one call and different for every other call. Pass it to the system
+the tool writes to as its idempotency key, or derive the record's id from it, so a
+retry finds the work done instead of repeating it:
+
+```python
+from agent_chassis.packs import idempotency_key
+
+
+async def create_ticket(email: str, subject: str) -> str:
+    key = idempotency_key()  # None for a pure tool or outside an activity
+    ticket = tickets_api.create(email, subject, idempotency_key=key)
+    return f"Ticket {ticket.id} created"
+```
+
+The chassis does not enforce this: a tool that ignores the key is still at-least-once.
+Read-only tools need nothing.
+
 ## How a pack reaches a role
 
 Three registration mechanisms, chosen by *who wrote the code* (D20):

@@ -89,9 +89,34 @@ regular `Agent`, and the adapter now builds agents that way
 metadata (`{"temporal": False}`) instead of `tool_activity_config`. Activity
 names still derive from the agent name and toolset ids, so the consequence
 above is unchanged. Verified by continuing an in-flight conversation on a
-worker running the new code (between turns; a worker killed mid-activity was not
-exercised). The paragraphs below describe the original wrapper and are left as
-decided.
+worker running the new code (between turns; the mid-activity kill is covered by the
+2026-11-16 amendment below). The paragraphs below describe the original wrapper and
+are left as decided.
+
+**Amended 2026-11-16 — a killed worker is recovered, and tools run at-least-once.**
+Exercised on the compose stack with real model calls (OpenAI and Anthropic): the
+worker was SIGKILLed while 6 conversations were mid-turn, at 1.2s (a guardrail
+activity in flight) and 2.5s (a model request in flight), and restarted at once.
+All 12 conversations completed with a correct reply; Temporal retried exactly the
+activity that was running. A reply takes about 3s normally and 36 to 39s after a
+kill, because a dead worker's activity is only noticed when its timeout expires.
+A tool is no different from any activity: if the worker dies after the tool did its
+work but before Temporal recorded the result, the activity runs again from the start.
+Measured with a ticket-creating tool killed right after it committed: the retry
+created a second ticket and the customer was given the second reference, leaving the
+first orphaned. The chassis cannot make an arbitrary side effect exactly-once, so it
+gives the tool what it needs to do so itself: `agent_chassis.packs.idempotency_key()`
+returns `<workflow id>:<activity id>`, identical on every attempt of one call and
+different for every other call (the activity id is assigned when the workflow
+schedules the call and survives retries). A tool passes it to the system it writes to
+as that system's idempotency key, or derives the record's id from it. Repeating the
+experiment with the example ticket tool deriving its id from the key: the tool body
+ran twice and both runs produced the same ticket, which the customer was told.
+Tools declared `pure=True` run in the workflow, have no key and are not retried. Not
+built: the chassis does not enforce idempotency; a tool that ignores the key is still
+at-least-once. The kill-to-reply delay was only measured for model and guardrail
+activities (36 to 39s); the tool-call runs took about 80s end to end, but that includes
+the test's own 8-second tool, so it is not a clean recovery time.
 
 ### D2 — Runtime adapter seam: chassis owns the workflow shell
 
