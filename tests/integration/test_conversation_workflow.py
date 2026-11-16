@@ -58,9 +58,13 @@ from agent_chassis.packs import (
     PackConfig,
     PackRegistry,
     ToolSpec,
+    idempotency_key,
 )
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
+
+
+TOOL_KEYS: list[str | None] = []
 
 
 class BillingPack(CapabilityPack):
@@ -78,9 +82,17 @@ class BillingPack(CapabilityPack):
             """Look up an invoice (read-only, not approval-gated)."""
             return f"invoice {number}: paid"
 
+        async def flaky_lookup(query: str) -> str:
+            """Fails on its first attempt, so Temporal retries the activity."""
+            TOOL_KEYS.append(idempotency_key())
+            if len(TOOL_KEYS) % 2 == 1:
+                raise RuntimeError("transient failure")
+            return f"found {query}"
+
         return [
             ToolSpec("publish_summary", publish_summary, "Publish a summary"),
             ToolSpec("lookup_invoice", lookup_invoice, "Look up an invoice"),
+            ToolSpec("flaky_lookup", flaky_lookup, "A lookup that fails once"),
         ]
 
 
@@ -182,6 +194,8 @@ def _script(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         )
 
     is_supervisor = "You handle" not in instructions  # capability fragments absent
+    if not is_supervisor and "flaky" in text.lower():
+        return ModelResponse(parts=[ToolCallPart("flaky_lookup", {"query": "x"})])
     if not is_supervisor and "lookup" in text.lower():
         return ModelResponse(
             parts=[ToolCallPart("lookup_invoice", {"number": "INV-1"})]
@@ -303,6 +317,7 @@ def _chassis_fixture(
         FAKE_DELIVERIES.clear()
         GUARDRAIL_CONTEXTS.clear()
         OUTPUT_CHECKS.clear()
+        TOOL_KEYS.clear()
         runtime = _build_runtime(
             escalation, push_sender, approvers_sender, audit, outcomes, outcome_retry
         )
@@ -529,6 +544,33 @@ async def test_history_from_before_output_guardrails_still_replays(env, settings
         plugins=temporal_plugins(),
     )
     await replayer.replay_workflow(history)  # raises on non-determinism
+
+
+async def test_tool_idempotency_key_is_stable_across_retries(chassis):
+    """A tool that runs as an activity is at-least-once. Its key must be the same
+    on every attempt of one call (so a retry can find the work already done) and
+    differ between calls."""
+    client, task_queue, _ = chassis
+
+    async def run(conversation: str) -> list[str | None]:
+        TOOL_KEYS.clear()
+        await _send(client, task_queue, conversation, "I need my invoice")  # → billing
+        reply = await asyncio.wait_for(
+            _send(client, task_queue, conversation, "flaky please"), timeout=60
+        )
+        assert [e.name for e in reply.events if e.kind == "tool_call"] == [
+            "flaky_lookup"
+        ]
+        return list(TOOL_KEYS)
+
+    first_conversation = str(uuid.uuid4())
+    first = await run(first_conversation)
+    second = await run(str(uuid.uuid4()))
+
+    assert len(first) == 2 and first[0] is not None  # failed once, then retried
+    assert first[0] == first[1]  # same call, same key
+    assert first[0].startswith(f"conversation-{first_conversation}:")
+    assert second[0] != first[0]  # another call, another key
 
 
 async def test_output_guardrail_does_not_check_escalation_acks(chassis):

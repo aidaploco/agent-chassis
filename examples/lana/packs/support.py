@@ -1,9 +1,10 @@
 """Support capability. Company knowledge lives HERE, once (persona/facts
 drift between agents is structurally impossible: one pack owns the facts)."""
 
+import hashlib
 import random
 
-from agent_chassis.packs import CapabilityPack, PackConfig, ToolSpec
+from agent_chassis.packs import CapabilityPack, PackConfig, ToolSpec, idempotency_key
 
 _KNOWLEDGE = """
 === BRIGHTLOOP KNOWLEDGE ===
@@ -58,7 +59,17 @@ class SupportPack(CapabilityPack):
 
         async def create_ticket(email: str, subject: str, description: str) -> str:
             """Open a support ticket; returns its BL-XXXXX reference."""
-            ticket_id = f"BL-{random.randint(10000, 99999)}"
+            # A tool runs at-least-once: if the worker dies after this writes but
+            # before Temporal records the result, the call runs again. Deriving
+            # the id from the call's idempotency key makes that retry produce the
+            # same ticket instead of a second one. (A real ticket API would take
+            # the key as its Idempotency-Key.)
+            key = idempotency_key()
+            if key is None:
+                ticket_id = f"BL-{random.randint(10000, 99999)}"
+            else:
+                digest = int(hashlib.sha256(key.encode()).hexdigest(), 16)
+                ticket_id = f"BL-{10000 + digest % 90000}"
             _TICKETS[ticket_id] = "Open — awaiting triage"
             return f"Ticket {ticket_id} created for {email}: {subject}"
 
