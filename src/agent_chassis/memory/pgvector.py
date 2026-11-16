@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import psycopg
 from pgvector.psycopg import register_vector_async
+from psycopg import sql
 from psycopg_pool import AsyncConnectionPool
 
 from agent_chassis.memory.base import (
@@ -81,6 +82,9 @@ class PgVectorSubstrate:
         self._collection = collection
         self._embedder = embedder
         self._table = table
+        # Composed, never interpolated: the table name is quoted as an
+        # identifier, so it cannot inject SQL however it is spelled.
+        self._t = sql.Identifier(table)
         self._pool = AsyncConnectionPool(
             dsn, open=False, kwargs={"autocommit": True}, configure=self._configure
         )
@@ -100,32 +104,47 @@ class PgVectorSubstrate:
         await self._pool.open()
         async with self._pool.connection() as conn:
             await conn.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS {self._table} (
-                    id UUID PRIMARY KEY,
-                    collection TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    metadata JSONB NOT NULL DEFAULT '{{}}',
-                    embedding vector({self._embedder.dim}) NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL,
-                    source TEXT NOT NULL DEFAULT '{DEFAULT_SOURCE}',
-                    author TEXT NOT NULL DEFAULT '{DEFAULT_AUTHOR}'
+                sql.SQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS {table} (
+                        id UUID PRIMARY KEY,
+                        collection TEXT NOT NULL,
+                        kind TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        metadata JSONB NOT NULL DEFAULT '{{}}',
+                        embedding vector({dim}) NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL,
+                        source TEXT NOT NULL DEFAULT {source},
+                        author TEXT NOT NULL DEFAULT {author}
+                    )
+                    """
+                ).format(
+                    table=self._t,
+                    dim=sql.Literal(self._embedder.dim),
+                    source=sql.Literal(DEFAULT_SOURCE),
+                    author=sql.Literal(DEFAULT_AUTHOR),
                 )
-                """
             )
             # D23 migration: pre-provenance installs gain the columns with
             # the least-trust default — unknown origin is never promoted.
             await conn.execute(
-                f"ALTER TABLE {self._table}"
-                f" ADD COLUMN IF NOT EXISTS source TEXT NOT NULL"
-                f" DEFAULT '{DEFAULT_SOURCE}',"
-                f" ADD COLUMN IF NOT EXISTS author TEXT NOT NULL"
-                f" DEFAULT '{DEFAULT_AUTHOR}'"
+                sql.SQL(
+                    "ALTER TABLE {table}"
+                    " ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT {source},"
+                    " ADD COLUMN IF NOT EXISTS author TEXT NOT NULL DEFAULT {author}"
+                ).format(
+                    table=self._t,
+                    source=sql.Literal(DEFAULT_SOURCE),
+                    author=sql.Literal(DEFAULT_AUTHOR),
+                )
             )
             await conn.execute(
-                f"CREATE INDEX IF NOT EXISTS {self._table}_collection_idx"
-                f" ON {self._table} (collection, kind)"
+                sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {index} ON {table} (collection, kind)"
+                ).format(
+                    index=sql.Identifier(f"{self._table}_collection_idx"),
+                    table=self._t,
+                )
             )
         _logger.info("memory substrate ready collection=%s", self._collection)
 
@@ -145,10 +164,12 @@ class PgVectorSubstrate:
         embedding = await self._embedder.embed(content)
         async with self._pool.connection() as conn:
             await conn.execute(
-                f"INSERT INTO {self._table}"
-                " (id, collection, kind, content, metadata, embedding,"
-                "  created_at, source, author)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                sql.SQL(
+                    "INSERT INTO {table}"
+                    " (id, collection, kind, content, metadata, embedding,"
+                    "  created_at, source, author)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                ).format(table=self._t),
                 (
                     entry_id,
                     self._collection,
@@ -167,7 +188,7 @@ class PgVectorSubstrate:
         self, query: str, limit: int = 5, kinds: list[str] | None = None
     ) -> list[MemoryEntry]:
         embedding = await self._embedder.embed(query)
-        kind_clause = "AND kind = ANY(%s)" if kinds else ""
+        kind_clause = sql.SQL("AND kind = ANY(%s)" if kinds else "")
         patterns = _keyword_patterns(query)
 
         async with self._pool.connection() as conn:
@@ -177,15 +198,17 @@ class PgVectorSubstrate:
             semantic_params.extend([embedding, limit])
             semantic = await (
                 await conn.execute(
-                    f"""
-                    SELECT id, collection, kind, content, metadata, created_at,
-                           source, author,
-                           1 - (embedding <=> %s::vector) AS score
-                    FROM {self._table}
-                    WHERE collection = %s {kind_clause}
-                    ORDER BY embedding <=> %s::vector
-                    LIMIT %s
-                    """,
+                    sql.SQL(
+                        """
+                        SELECT id, collection, kind, content, metadata, created_at,
+                               source, author,
+                               1 - (embedding <=> %s::vector) AS score
+                        FROM {table}
+                        WHERE collection = %s {kind_clause}
+                        ORDER BY embedding <=> %s::vector
+                        LIMIT %s
+                        """
+                    ).format(table=self._t, kind_clause=kind_clause),
                     semantic_params,
                 )
             ).fetchall()
@@ -198,18 +221,20 @@ class PgVectorSubstrate:
                 keyword_params.append(limit)
                 keyword = await (
                     await conn.execute(
-                        f"""
-                        SELECT id, collection, kind, content, metadata,
-                               created_at, source, author,
-                               NULL AS score,
-                               (SELECT count(*) FROM unnest(%s::text[]) AS p
-                                 WHERE content ILIKE p) AS matched
-                        FROM {self._table}
-                        WHERE collection = %s AND content ILIKE ANY(%s)
-                              {kind_clause}
-                        ORDER BY matched DESC, created_at DESC
-                        LIMIT %s
-                        """,
+                        sql.SQL(
+                            """
+                            SELECT id, collection, kind, content, metadata,
+                                   created_at, source, author,
+                                   NULL AS score,
+                                   (SELECT count(*) FROM unnest(%s::text[]) AS p
+                                     WHERE content ILIKE p) AS matched
+                            FROM {table}
+                            WHERE collection = %s AND content ILIKE ANY(%s)
+                                  {kind_clause}
+                            ORDER BY matched DESC, created_at DESC
+                            LIMIT %s
+                            """
+                        ).format(table=self._t, kind_clause=kind_clause),
                         keyword_params,
                     )
                 ).fetchall()
@@ -246,7 +271,7 @@ class PgVectorSubstrate:
     async def recent(
         self, kinds: list[str] | None = None, limit: int = 5
     ) -> list[MemoryEntry]:
-        kind_clause = "AND kind = ANY(%s)" if kinds else ""
+        kind_clause = sql.SQL("AND kind = ANY(%s)" if kinds else "")
         params: list = [self._collection]
         if kinds:
             params.append(kinds)
@@ -254,14 +279,16 @@ class PgVectorSubstrate:
         async with self._pool.connection() as conn:
             rows = await (
                 await conn.execute(
-                    f"""
-                    SELECT id, collection, kind, content, metadata, created_at,
-                           source, author
-                    FROM {self._table}
-                    WHERE collection = %s {kind_clause}
-                    ORDER BY created_at DESC
-                    LIMIT %s
-                    """,
+                    sql.SQL(
+                        """
+                        SELECT id, collection, kind, content, metadata, created_at,
+                               source, author
+                        FROM {table}
+                        WHERE collection = %s {kind_clause}
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                        """
+                    ).format(table=self._t, kind_clause=kind_clause),
                     params,
                 )
             ).fetchall()

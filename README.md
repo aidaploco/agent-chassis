@@ -112,6 +112,7 @@ uv sync                                          # Python is pinned in .python-v
 uv run pytest tests/unit                         # fast, no network or services
 uv run pytest --cov                              # everything (needs Docker)
 uv run ruff format --check . && uv run ruff check .
+uv run pyright                                   # types (standard mode)
 uv run lint-imports                              # the adapter seam contract (D2)
 ```
 
@@ -221,12 +222,11 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 - **Memory is pgvector only,** and memory retrieval is employee-wide. The scoped retrieval API and MCP exposure in D22 and D24 are designed but not built.
 - **Guardrails and the eval judge are LLM-based** and therefore probabilistic. They reduce risk; they do not eliminate it.
 - **One runtime adapter.** The seam is designed and import-enforced, but only the pydantic-ai adapter exists, so it has not been proven against a second SDK.
-- **No static type checking.** The code is annotated, but no type checker runs in CI.
 - **Not load-tested, and no production deployment manifests.** The repo ships a Dockerfile, a compose file, and a reproducible image build script; a Kubernetes deployment is left to the operator.
 
 ## Development conventions
 
-- **Python 3.13** (pinned in `.python-version`), managed with `uv`; formatting and linting with `ruff`.
+- **Python 3.13** (pinned in `.python-version`), managed with `uv`; formatting and linting with `ruff`; types checked with `pyright` (standard mode, in CI).
 - **The seam is sacred.** A new chassis package must be listed in the import-linter contract in [`pyproject.toml`](pyproject.toml) so it is forbidden from importing the vendor SDK.
 - **Fail closed, fail loud.** A missing encryption key, an unknown manifest field, or an unattributable approval stops the process or returns an error; none degrades silently.
 - **Zero role special-casing.** No chassis code branches on a specific Employee's name.

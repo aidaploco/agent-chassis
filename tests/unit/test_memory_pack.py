@@ -30,7 +30,7 @@ class FakeSubstrate:
         return True
 
 
-def _bind(substrate) -> FakeSubstrate | None:
+def _bind(substrate):
     set_role_runtime(
         RoleRuntime(
             resolved=None,  # type: ignore[arg-type] - tools only touch substrate
@@ -56,7 +56,8 @@ async def test_search_memory_formats_entries_with_provenance():
 
 
 async def test_record_memory_validates_kind_and_carries_user_provenance():
-    substrate = _bind(FakeSubstrate())
+    substrate = FakeSubstrate()
+    _bind(substrate)
     tools = _tools()
 
     assert "Recorded" in await tools["record_memory"]("decision", "Ship it.")

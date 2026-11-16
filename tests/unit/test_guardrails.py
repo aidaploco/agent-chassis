@@ -51,7 +51,8 @@ async def test_message_length_bounds():
     config = LengthConfig(max_chars=100)
     assert (await guardrail.check(_message("x" * 100), config)).passed
     verdict = await guardrail.check(_message("x" * 101), config)
-    assert not verdict.passed and "100" in verdict.reason
+    assert not verdict.passed
+    assert verdict.reason is not None and "100" in verdict.reason
 
 
 @pytest.mark.parametrize(
@@ -78,6 +79,7 @@ async def test_unreadable_verdict_fails_closed(llm, reply):
     ):
         verdict = await guardrail.check(_message("hello"), config)
         assert not verdict.passed
+        assert verdict.reason is not None
         assert "no readable verdict" in verdict.reason
 
 

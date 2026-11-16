@@ -27,10 +27,11 @@ class BillingPack(CapabilityPack):
     config_model = BillingConfig
     required_secrets = ("BILLING_API_KEY",)
 
-    def instructions(self, config: BillingConfig) -> str:
+    def instructions(self, config: PackConfig) -> str:
+        assert isinstance(config, BillingConfig)
         return f"You handle billing in {config.currency}."
 
-    def tools(self, config: BillingConfig) -> list[ToolSpec]:
+    def tools(self, config: PackConfig) -> list[ToolSpec]:
         async def get_invoice(invoice_id: str) -> str:
             return f"invoice {invoice_id}"
 
@@ -55,9 +56,8 @@ class LengthGuardrail(GuardrailPack):
     name = "message_length"
     config_model = LengthConfig
 
-    async def check(
-        self, message, config: LengthConfig, context=()
-    ) -> GuardrailVerdict:
+    async def check(self, message, config: PackConfig, context=()) -> GuardrailVerdict:
+        assert isinstance(config, LengthConfig)
         return GuardrailVerdict(passed=len(message.text) <= config.max_chars)
 
 

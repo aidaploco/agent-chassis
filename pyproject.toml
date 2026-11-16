@@ -38,11 +38,32 @@ package = true
 [dependency-groups]
 dev = [
     "import-linter>=2.3",
+    "pyright>=1.1.414",
     "pytest>=9.0",
     "pytest-asyncio>=1.3",
     "pytest-cov>=7.0",
     "ruff>=0.15",
 ]
+
+[tool.pyright]
+# Standard mode over the shipped code and the examples.
+include = ["src", "examples", "tests"]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+
+# Tests are held to standard mode too, except for the three rules that fire on
+# test doubles by design: passing None for an adapter that a test never
+# touches, fakes that implement only the part of a protocol under test, and
+# poking at attributes of those fakes. Everything else (undefined names, bad
+# overrides, Optional misuse) still applies to them.
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+extraPaths = ["."]  # tests import shared fixtures as `tests.integration...`
+reportArgumentType = "none"
+reportAttributeAccessIssue = "none"
+reportCallIssue = "none"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
