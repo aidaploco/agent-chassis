@@ -1,8 +1,8 @@
 """What ships must be what is tested.
 
-Dependabot bumped the Docker base image from Python 3.13 to 3.15 while CI only
-ran 3.13, so the shipped interpreter had never run the suite. These tests tie
-the image, the declared floor and the CI matrix together, so the next bump
+Dependabot once bumped the Docker base image from Python 3.13 to 3.15 while CI
+only ran 3.13, so the shipped interpreter had never run the suite. These tests
+tie the image, the declared floor and the CI matrix together, so the next bump
 fails here (on the Dependabot PR itself) until the new version is in the matrix.
 """
 

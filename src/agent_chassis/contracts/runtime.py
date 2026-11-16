@@ -23,7 +23,7 @@ class RuntimeHandle:
 class RuntimeAdapter(Protocol):
     """What the chassis needs from an agent runtime — nothing more."""
 
-    def build(self, resolved: "ResolvedRole") -> RuntimeHandle:
+    def build(self, resolved: ResolvedRole) -> RuntimeHandle:
         """Construct runtime agents from a resolved role.
 
         Called once per worker process; the returned handle is reused across

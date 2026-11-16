@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Python 3.15 is now the only supported version.** `requires-python` is `>=3.15`
+  (it was `>=3.13`), matching the container image, which already ran 3.15; CI,
+  pyright and `.python-version` follow. Installing the package on 3.13 or 3.14 is
+  no longer possible. The container image is unaffected.
+
 ## 0.7.0 — 2026-11-16
 
 Adds output guardrails (D5) and fixes a slow first request after a worker start. No

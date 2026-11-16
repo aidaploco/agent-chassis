@@ -72,7 +72,7 @@ The same conversation in the Temporal UI. Each guardrail check and model call is
 
 ## Quickstart
 
-Requires Python 3.13+ with [`uv`](https://docs.astral.sh/uv/) for development, and Docker for the full stack (the container image runs Python 3.15; CI tests both). The default models are OpenAI's, so running an Employee needs an API key.
+Requires Python 3.15+ with [`uv`](https://docs.astral.sh/uv/) for development, and Docker for the full stack (the container image runs Python 3.15 too). The default models are OpenAI's, so running an Employee needs an API key.
 
 ```bash
 # .env at the repo root. The worker fails closed without a codec key (D9).
@@ -116,7 +116,7 @@ uv run pyright                                   # types (standard mode)
 uv run lint-imports                              # the adapter seam contract (D2)
 ```
 
-The unit tests need nothing external. The integration tests run Temporal's local dev server, and the Postgres-backed tests (memory and the audit table) start a throwaway container, so Docker must be running: without it they skip locally and fail in CI. CI runs lint, pyright and import-linter, and the full suite on Python 3.13 and 3.15 with an 80% coverage gate; the live evals run separately (below).
+The unit tests need nothing external. The integration tests run Temporal's local dev server, and the Postgres-backed tests (memory and the audit table) start a throwaway container, so Docker must be running: without it they skip locally and fail in CI. CI runs lint, pyright and import-linter, and the full suite on Python 3.15 with an 80% coverage gate; the live evals run separately (below).
 
 The **eval harness** (D17) drives real conversations through a running Employee and grades them. Lana's suite has 17 cases, including multi-turn and cancel-discipline cases. With the stack up (the runner reads `OPENAI_API_KEY` from the shell, not from `.env`, so export it first):
 
@@ -182,7 +182,7 @@ examples/       lana, nova, skeleton
 tests/          unit and integration tests
 scripts/        reproducible image build
 docs/images/    screenshots used in this README
-.github/        CI (lint, types, tests on 3.13 and 3.15), nightly live evals, Dependabot
+.github/        CI (lint, types, tests on 3.15), nightly live evals, Dependabot
 DESIGN.md       the numbered decision log
 PATCHES.md      active workflow.patched() ledger (D14)
 CHANGELOG.md    what changed per release, and what to check before upgrading
@@ -235,7 +235,7 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 
 ## Development conventions
 
-- **Python 3.13** is the floor (pinned in `.python-version`) and 3.15 is what the image runs; CI tests both. Managed with `uv`; formatting and linting with `ruff`; types checked with `pyright` (standard mode, in CI).
+- **Python 3.15** is the floor (pinned in `.python-version`), what the image runs and what CI tests. Managed with `uv`; formatting and linting with `ruff`; types checked with `pyright` (standard mode, in CI).
 - **Releases** are tagged `vX.Y.Z` with a [`CHANGELOG.md`](CHANGELOG.md) entry that lists first the changes that make a configuration that used to start refuse to.
 - **The seam is sacred.** A new chassis package must be listed in the import-linter contract in [`pyproject.toml`](pyproject.toml) so it is forbidden from importing the vendor SDK.
 - **Fail closed, fail loud.** A missing encryption key, an unknown manifest field, or an unattributable approval stops the process or returns an error; none degrades silently.

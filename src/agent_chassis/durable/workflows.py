@@ -85,7 +85,7 @@ _OUTCOME_RETRY = RetryPolicy(
 _NOTIFY_ACTIVITY_TIMEOUT = timedelta(seconds=15)
 
 
-async def _emit_outcome_event(event: "OutcomeEvent") -> None:
+async def _emit_outcome_event(event: OutcomeEvent) -> None:
     """Record a finished conversation or task (D12): bounded retries, never fatal."""
     retry = get_role_runtime().outcome_retry or _OUTCOME_RETRY
     try:
@@ -105,7 +105,7 @@ async def _emit_outcome_event(event: "OutcomeEvent") -> None:
         )
 
 
-async def _notify_approvers(notice: "ApproverNotice") -> None:
+async def _notify_approvers(notice: ApproverNotice) -> None:
     """Tell the approvers' channel (D10) — bounded and best-effort.
 
     Retries are capped for the same reason as reply delivery: Temporal's
@@ -129,7 +129,7 @@ async def _notify_approvers(notice: "ApproverNotice") -> None:
 
 
 async def _check_output(
-    runtime: "RoleRuntime",
+    runtime: RoleRuntime,
     *,
     conversation_id: str,
     agent: str,
@@ -166,7 +166,7 @@ async def _check_output(
     return None
 
 
-def _absorb_usage_events(state: "ConversationState", events) -> None:
+def _absorb_usage_events(state: ConversationState, events) -> None:
     """Fold a turn's TurnEvents into the state's usage counters — shared by
     both workflow types (identical semantics, identical field writes)."""
     for event in events:
@@ -185,10 +185,10 @@ def _outcome_event(
     tenant: str,
     task_type: str,
     conversation_id: str,
-    state: "ConversationState",
-    resolution: "Resolution",
+    state: ConversationState,
+    resolution: Resolution,
     turns: int,
-) -> "OutcomeEvent":
+) -> OutcomeEvent:
     """One OutcomeEvent (D12) from workflow state — shared by both workflow
     types; only resolution policy and identity fields differ per caller."""
     ended = workflow.now().astimezone(UTC)
@@ -815,7 +815,7 @@ class TaskWorkflow:
         _absorb_usage_events(self._state, result.events)
         return result
 
-    async def _await_decisions(self, items, pause: int = 0) -> list["ApprovalDecision"]:
+    async def _await_decisions(self, items, pause: int = 0) -> list[ApprovalDecision]:
         """WAITING_ON_HUMAN (D10): durable wait with reminder and expiry
         timers. Undecided calls are denied at expiry (approver 'system')."""
         escalation = self._manifest.escalation
