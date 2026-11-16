@@ -15,7 +15,11 @@ the runtime adapter converts them to vendor tools at build time.
 A pack bundles *everything* it needs: tools, the instruction text that teaches
 an agent to use them, a `PackConfig` model whose field constraints *are* the
 allowed manifest overrides, its required secrets/scopes, and its regression
-eval cases (D17 — the tests travel with the capability).
+eval cases (D17 — declared via `eval_cases_dir()`; the eval runner does not read
+bundled suites yet). `required_secrets` are enforced: the worker refuses to
+start when a composed pack's secret is unset. `required_scopes` is
+informational. Tool names starting `final_result` are reserved by the runtime
+and rejected at build.
 
 ## Files
 
@@ -24,7 +28,9 @@ eval cases (D17 — the tests travel with the capability).
 - [`registry.py`](registry.py) — `PackRegistry`: discovers packs and
   `resolve()`s a manifest against them, validating every `config` block and
   recording each override vs the pack default (`OverrideRecord`, the D11 audit
-  feed). Fails closed on unknown packs or invalid config.
+  feed, written to the audit table once per manifest version). Fails closed on
+  unknown packs, invalid config, and an `approval_required_tools` entry that no
+  composed pack provides.
 - [`composition.py`](composition.py) — pure string building: assembles one
   agent's system prompt from persona + pack instruction fragments + the routing
   contract. No runtime involved, so it's trivially testable.
@@ -32,7 +38,12 @@ eval cases (D17 — the tests travel with the capability).
   length, prompt-injection, off-topic), promoted to chassis builtins because
   every role wants them and the acceptance matrix runs the *same* pack at
   different thresholds across roles. LLM-backed checks go through
-  [`utils/llm.py`](../utils/llm.py), never the agent framework.
+  [`utils/llm.py`](../utils/llm.py), never the agent framework. Their verdict is
+  strict `FLAG` / `PASS`: an empty, refused or ambiguous reply trips the
+  guardrail (fail closed) with a stated reason. The judged message is handed over
+  as quoted data inside `<message>` tags, with tag-like text defanged, so a
+  message that says "write me a poem" cannot be obeyed by the guardrail model.
+  `GuardrailPack.check` takes any `PackConfig`; subclasses narrow it inside.
 
 ## How a pack reaches a role
 

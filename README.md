@@ -1,6 +1,6 @@
 # agent-chassis
 
-A runtime **chassis** for role-based AI agents ("Employees"). An Employee is a declarative **role manifest** (one YAML file) plus reusable **capability packs**, never a new codebase. The chassis supplies durable execution ([Temporal](https://temporal.io)), channels (HTTP and a Slack-shaped webhook), input guardrails, memory (Postgres + pgvector), tracing, human-approval escalation, outcome events, and an eval harness. A role provides only configuration.
+A runtime **chassis** for role-based AI agents ("Employees"). An Employee is a declarative **role manifest** (one YAML file) plus reusable **capability packs**, never a new codebase. The chassis supplies durable execution ([Temporal](https://temporal.io)), channels (HTTP and a Slack-shaped webhook), input guardrails, memory (Postgres + pgvector), tracing, human-approval escalation with an append-only audit table, outcome events, and an eval harness. A role provides only configuration.
 
 > **This is a demo project.** "Brightloop" (a webhook-delivery SaaS) and the example Employees built on it are fictional. All customer data, invoices, tickets, and knowledge-base content in `examples/` are invented mock data, and the billing tools act on an email address with no authentication. It is a design and engineering showcase, not a hardened product; see [Known limitations](#known-limitations).
 
@@ -27,7 +27,7 @@ flowchart LR
     GR -->|pass| RT["Routing loop<br/>walks the manifest graph"]
     RT -->|"run_turn"| AD["adapters/pydantic_ai<br/>the only vendor import"]
     AD --> ACT["Model and tool calls<br/>each a Temporal activity"]
-    RT -->|escalate| HU["Escalation recorded and acknowledged<br/>(the approval wait lives in TaskWorkflow)"]
+    RT -->|escalate| HU["Escalation recorded (audit row), approvers notified,<br/>user told a human will follow up<br/>(the approval wait lives in TaskWorkflow)"]
     RT -->|reply| OUT["Reply + one OutcomeEvent"]
     WF -.-> PG[("Postgres + pgvector<br/>memory")]
     WF -.traces.-> PX["Phoenix"]
@@ -37,7 +37,7 @@ flowchart LR
 - **Routing is the chassis's job (D4).** Agents return a structured directive (`reply`, `route`, `escalate`, `needs_approval`). The chassis walks the manifest's routing graph; an illegal or over-budget route is an error, never a silent fallback.
 - **Durable by construction (D1, D6a).** Conversation history is workflow state carried through continue-as-new, and every model and tool call is its own activity. A worker can be killed mid-conversation or mid-approval and the work resumes.
 - **Human approval is a workflow state (D10, D11).** A gated tool pauses a `TaskWorkflow`, possibly for days, with reminders and an expiry. Decisions are attributed to the authenticated principal and audit-logged before they take effect. A conversation that escalates records it and tells the user; it does not wait. With `POSTGRES_URL` set they land in an append-only `chassis_audit` table (enforced by database triggers), and an approval is not acted on until its entry is written.
-- **Fail closed.** The worker refuses to start without a payload-encryption key (D9), manifests reject unknown fields and out-of-bounds guardrail thresholds (D7), and approval endpoints refuse to serve unauthenticated (D21).
+- **Fail closed.** The worker refuses to start without a payload-encryption key (D9) or without the secrets its packs declare; manifests reject unknown fields, unknown channels, a misspelled gated tool and out-of-bounds guardrail thresholds (D7); approval endpoints refuse to serve unauthenticated (D21); an approval is not acted on until its audit row is written (D11); and an LLM guardrail that returns an unreadable verdict refuses the message rather than waving it through (D5).
 - **Observability (D19).** One readable trace tree per turn, with guardrails as first-class spans, exported over OTLP to [Arize Phoenix](https://github.com/Arize-ai/phoenix) (or any OTLP backend) when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
 
 ### The lifecycle of one message
@@ -72,7 +72,7 @@ The same conversation in the Temporal UI. Each guardrail check and model call is
 
 ## Quickstart
 
-Requires Python 3.13+ with [`uv`](https://docs.astral.sh/uv/), and Docker for the full stack. The default models are OpenAI's, so running an Employee needs an API key.
+Requires Python 3.13+ with [`uv`](https://docs.astral.sh/uv/) for development, and Docker for the full stack (the container image runs Python 3.15; CI tests both). The default models are OpenAI's, so running an Employee needs an API key.
 
 ```bash
 # .env at the repo root. The worker fails closed without a codec key (D9).
@@ -116,7 +116,7 @@ uv run pyright                                   # types (standard mode)
 uv run lint-imports                              # the adapter seam contract (D2)
 ```
 
-The unit tests need nothing external. The integration tests run Temporal's in-process test server, and the pgvector tests start a throwaway Postgres container, so Docker must be running. CI runs lint, import-linter, and the full suite with an 80% coverage gate.
+The unit tests need nothing external. The integration tests run Temporal's local dev server, and the Postgres-backed tests (memory and the audit table) start a throwaway container, so Docker must be running: without it they skip locally and fail in CI. CI runs lint, pyright and import-linter, and the full suite on Python 3.13 and 3.15 with an 80% coverage gate; the live evals run separately (below).
 
 The **eval harness** (D17) drives real conversations through a running Employee and grades them. Lana's suite has 15 cases, including multi-turn and cancel-discipline cases. With the stack up (the runner reads `OPENAI_API_KEY` from the shell, not from `.env`, so export it first):
 
@@ -126,7 +126,7 @@ EVAL_JUDGE_MODEL=openai:gpt-5.4-mini-2026-03-17 \
   python -m agent_chassis.evals http://localhost:8001 examples/lana/evals
 ```
 
-Each case declares only the expectations it cares about: the expected agent, expected or forbidden tools, the directive, per-guardrail pass or trip, and a free-text quality rubric. The quality grader is an LLM judge that sees the full conversation and returns a binary verdict with its reasoning stated first. Evals make real model calls and cost money.
+Each case declares only the expectations it cares about: the expected agent, expected or forbidden tools, the directive, per-guardrail pass or trip, and a free-text quality rubric. The quality grader is an LLM judge that sees the full conversation and returns a binary verdict with its reasoning stated first. Evals make real model calls and cost money. Model behaviour is probabilistic, so the runner can repeat each case and require a pass rate (`EVAL_REPEAT`, `EVAL_MIN_PASS_RATE`, `EVAL_BEARER_TOKEN`, `EVAL_CONCURRENCY`; see [`evals/README.md`](src/agent_chassis/evals/README.md)). CI runs Lana's suite on the real compose stack nightly and on PRs that can change behaviour (3 runs per case, 2 of 3 must pass); it is advisory, not a merge gate.
 
 ## Configuration
 
@@ -137,10 +137,12 @@ Settings load from environment variables or `.env` ([`config.py`](src/agent_chas
 | `OPENAI_API_KEY` | required for OpenAI tiers | Model access |
 | `MODEL_TIER_LIGHT` / `_STANDARD` / `_FRONTIER` | `openai:gpt-4o-mini` / `openai:gpt-5.4-mini-2026-03-17` / unset | Maps abstract tiers to concrete models. Any provider-prefixed pydantic-ai string works, e.g. `anthropic:...`. A manifest requesting an unset tier fails loudly |
 | `TEMPORAL_PAYLOAD_CODEC_KEY` | required by the worker | Base64 32-byte AES-GCM key; no key, no start (D9) |
+| `TEMPORAL_PAYLOAD_CODEC_KEY_ID` | `default` | Stamped on every encrypted payload so a key can be rotated |
 | `TEMPORAL_ADDRESS` / `_NAMESPACE` / `_TASK_QUEUE` | `localhost:7233` / `default` / `agent-chassis` | Temporal connection |
 | `MANIFEST_PATH` | required | The role manifest to run |
 | `PACKS_DIR` | unset | Directory of role-supplied capability packs |
 | `POSTGRES_URL` | unset | Memory substrate (a manifest with `substrate: none` runs without it) **and** the audit table. Unset = the audit stream is only logged, and the worker warns |
+| `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `text-embedding-3-small` / `1536` | OpenAI embedding model and dimension for the memory substrate. The dimension is baked into the table, so changing it needs a new table |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | unset | Full OTLP/HTTP traces URL (Phoenix, Logfire, …). Tracing is disabled when unset. `PHOENIX_COLLECTOR_ENDPOINT` is a legacy alias |
 | `OTEL_EXPORTER_OTLP_HEADERS` | unset | `k=v,k2=v2` auth headers for the backend (e.g. a Logfire write token) |
 | `HTTP_BEARER_TOKENS` | unset | `token:principal,...`. When set, every `/v1/*` call needs a token (D21), except the Slack webhook, which is verified by its signing secret |
@@ -153,10 +155,10 @@ Manifests name abstract model tiers (`light`, `standard`, `frontier`), never a c
 
 ## Writing a new Employee
 
-1. Write a `manifest.yaml`; copy [`examples/skeleton/manifest.yaml`](examples/skeleton/manifest.yaml) and grow it (schema in [`manifest/schema.py`](src/agent_chassis/manifest/schema.py)).
+1. Write a `manifest.yaml`; copy [`examples/skeleton/manifest.yaml`](examples/skeleton/manifest.yaml) and grow it (schema in [`manifest/schema.py`](src/agent_chassis/manifest/schema.py)). If specialists can answer each other's questions, give them edges to each other and not only back to the supervisor: Lana's billing agent used to dead-end on plan-pricing questions because it had no way to hand them to support.
 2. If it needs new tools, write a **capability pack**: a `CapabilityPack` subclass in a `packs/` directory exposing a module-level `PACKS` list. See [`examples/lana/packs/billing.py`](examples/lana/packs/billing.py).
 3. Point `MANIFEST_PATH` (and `PACKS_DIR`) at them.
-4. Bundle eval cases with the role and gate on the pass rate.
+4. Write eval cases for it (see [`examples/lana/evals`](examples/lana/evals)) and run them with the eval runner. To run them in CI, mirror [`.github/workflows/evals.yml`](.github/workflows/evals.yml).
 
 The loader is fail-closed: unknown fields, illegal routes, undeclared capabilities, and out-of-bounds thresholds are validation errors that name the offending path.
 
@@ -178,8 +180,11 @@ src/agent_chassis/
 examples/       lana, nova, skeleton
 tests/          unit and integration tests
 scripts/        reproducible image build
+docs/images/    screenshots used in this README
+.github/        CI (lint, types, tests on 3.13 and 3.15), nightly live evals, Dependabot
 DESIGN.md       the numbered decision log
 PATCHES.md      active workflow.patched() ledger (D14)
+CHANGELOG.md    what changed per release, and what to check before upgrading
 ```
 
 Every package folder has its own README. A role runs as two processes off one image (D18): an HTTP `api` unit and a Temporal `worker` unit, both pointed at the same manifest.
@@ -203,7 +208,7 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 | **D12** | Each completed conversation or task emits one versioned `OutcomeEvent`, as a log line and a memory entry. **Not built: the Postgres row and the OTel span event.** |
 | **D13** | Inbound turns are serialized through an in-workflow FIFO queue. |
 | **D14** | Workflow changes ship behind `workflow.patched()`; ledger in `PATCHES.md`. |
-| **D15** | Outbound delivery is at-least-once and idempotent per structured delivery key. **Not built: reminder and task deliveries (only conversation replies are pushed).** |
+| **D15** | Outbound delivery is at-least-once and idempotent per structured delivery key. Conversation replies and approver notices (escalations, approval requests, reminders) use it. **Not built: scheduled or proactive task messages.** |
 | **D16** | One tenant per deployment; isolation is the deployment environment's job. |
 | **D17** | Evals are chassis machinery: versioned case schema, full-conversation binary judge. Lana's suite runs in CI nightly and on behaviour-changing PRs (advisory, not a merge gate). **Not built: pack-bundled suites.** |
 | **D18** | Two units (HTTP and worker) off one image. |
@@ -222,12 +227,15 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 - **Role packs are not sandboxed.** Code loaded from `PACKS_DIR` runs with the worker's full privileges (D20). That is acceptable only when the deployment isolates each tenant.
 - **Memory is pgvector only,** and memory retrieval is employee-wide. The scoped retrieval API and MCP exposure in D22 and D24 are designed but not built.
 - **Guardrails and the eval judge are LLM-based** and therefore probabilistic. They reduce risk; they do not eliminate it.
+- **The Anthropic path of the LLM helper has only run against a mock transport.** Guardrails and the judge can name an `anthropic:` model, but every live check so far used OpenAI. Anthropic verdicts use the provider's default temperature (the SDK no longer accepts one).
+- **A Postgres outage pauses approvals.** That is the point of failing closed on the audit write (D11), but it means the audit store is on the approval path.
 - **One runtime adapter.** The seam is designed and import-enforced, but only the pydantic-ai adapter exists, so it has not been proven against a second SDK.
 - **Not load-tested, and no production deployment manifests.** The repo ships a Dockerfile, a compose file, and a reproducible image build script; a Kubernetes deployment is left to the operator.
 
 ## Development conventions
 
-- **Python 3.13** (pinned in `.python-version`), managed with `uv`; formatting and linting with `ruff`; types checked with `pyright` (standard mode, in CI).
+- **Python 3.13** is the floor (pinned in `.python-version`) and 3.15 is what the image runs; CI tests both. Managed with `uv`; formatting and linting with `ruff`; types checked with `pyright` (standard mode, in CI).
+- **Releases** are tagged `vX.Y.Z` with a [`CHANGELOG.md`](CHANGELOG.md) entry that lists first the changes that make a configuration that used to start refuse to.
 - **The seam is sacred.** A new chassis package must be listed in the import-linter contract in [`pyproject.toml`](pyproject.toml) so it is forbidden from importing the vendor SDK.
 - **Fail closed, fail loud.** A missing encryption key, an unknown manifest field, or an unattributable approval stops the process or returns an error; none degrades silently.
 - **Zero role special-casing.** No chassis code branches on a specific Employee's name.

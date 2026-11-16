@@ -14,7 +14,7 @@ channels, guardrails, memory, and evals all stay ignorant of the agent SDK.
 |---|---|---|
 | [`envelope.py`](envelope.py) | `MessageEnvelope`, `ContentPart` | The canonical inbound/outbound message. Channels normalize to/from this; the core never learns which channel it is on. |
 | [`turn.py`](turn.py) | `TurnRequest`, `TurnResult`, `TurnDirective` (`Reply` / `Route` / `Escalate` / `NeedsApproval`), `TurnEvent`, `TurnContext`, `ApprovalItem`, `ApprovalDecision` | One agent turn: what the chassis asks for and what the adapter returns. The **directive** is how an agent tells the chassis what to do next (D4). |
-| [`history.py`](history.py) | `ConversationHistory`, `HistoryBudget` | Conversation history — **opaque to the chassis** (D6a). Entries are vendor-shaped and owned by the adapter named in `runtime`; the chassis only carries them through workflow state and continue-as-new. |
+| [`history.py`](history.py) | `ConversationHistory`, `HistoryBudget` | Conversation history — **opaque to the chassis** (D6a). Entries are vendor-shaped and owned by the adapter named in `runtime`; the chassis only carries them through workflow state and continue-as-new. `HistoryBudget` is the manifest's compaction policy: keep `max_turns`, compacted once history holds 1.25x that. |
 | [`outcome.py`](outcome.py) | `OutcomeEvent`, `Resolution` | The **public metrics contract** (D12), one per completed conversation/task. Breaking changes require an `event_version` bump; a contract test pins the field set. |
 | [`runtime.py`](runtime.py) | `RuntimeAdapter` (Protocol), `RuntimeHandle` | The adapter seam itself: the only three methods the chassis needs from an agent runtime — `build`, `run_turn`, `compact_history`. |
 

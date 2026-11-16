@@ -3,7 +3,12 @@
 Every behavior-affecting change to workflow-deterministic code ships behind
 `workflow.patched("<change-slug>")`. Removal follows Temporal's two-step
 (`patched` → `deprecate_patch` → delete) once old runs have drained — bounded
-by the conversation idle timeout plus margin.
+by the conversation idle timeout, and for task workflows (which can wait days on
+an approval) by the longest `expire_after`, plus margin.
+
+Not every workflow edit needs a patch: one that only changes an activity's input
+payload, not which commands the workflow issues, replays unchanged (for example
+`EscalationRecord.kind`, added so reminders are labelled in the audit stream).
 
 | Patch id | Introduced | Earliest removal | Status |
 |---|---|---|---|

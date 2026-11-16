@@ -10,7 +10,7 @@ A deployed role runs as two processes built from the same image (D18):
 
 | Entrypoint | Command | Role |
 |---|---|---|
-| [`api.py`](api.py) | `uvicorn agent_chassis.api:app` | Hosts the HTTP + Slack channels; talks to Temporal as a client. |
+| [`api.py`](api.py) | `uvicorn agent_chassis.api:app` | Hosts the HTTP channel (and the Slack webhook route, when the manifest lists `slack`); talks to Temporal as a client. |
 | [`worker.py`](worker.py) | `python -m agent_chassis.worker` | Runs the Temporal workflows and activities — where turns actually execute. |
 
 Both call [`role_loader.py`](role_loader.py) to turn `MANIFEST_PATH` into a

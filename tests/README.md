@@ -10,8 +10,8 @@ uv run pytest --cov          # CI gates at --cov-fail-under=80
 
 | Path | What it covers |
 |---|---|
-| [`unit/`](unit/) | Fast, no external services. Contracts, manifest validation, pack resolution, the pydantic-ai adapter, eval cases and graders, introspection, the builtin guardrails, the eval runner, the Slack sender, the HTTP sender identity, the import-linter contract, and the **acceptance matrix**. |
-| [`integration/`](integration/) | Cross-component tests: channels, the conversation and task workflows end-to-end (including history compaction and schedule sync) against a real Temporal dev server, and the pgvector memory substrate against a throwaway Postgres container. |
+| [`unit/`](unit/) | Fast, no external services. Contracts, manifest validation, pack resolution, the pydantic-ai adapter, eval cases, graders and the eval runner, introspection, the builtin guardrails, the LLM helper (both providers, against mock transports), the logger, the Slack sender and approver notices, the HTTP sender identity, audit events, the example packs, CI/Dockerfile alignment, the import-linter contract, and the **acceptance matrix**. |
+| [`integration/`](integration/) | Cross-component tests: channels, the conversation and task workflows end-to-end (history compaction, schedule sync, pure tools, approver notices, audit entries) against a real Temporal dev server, and the Postgres-backed stores (pgvector memory and the audit table) against a throwaway container from [`integration/conftest.py`](integration/conftest.py). Without Docker the Postgres tests skip locally and fail in CI. |
 | [`fixtures/`](fixtures/) | Shared test data (e.g. `lana.yaml`). |
 | [`conftest.py`](conftest.py) | Global fixtures — notably clearing the `get_settings` lru_cache around each test so monkeypatched env is read fresh. |
 
@@ -24,7 +24,15 @@ uv run pytest --cov          # CI gates at --cov-fail-under=80
   source for role names — it has caught a real offender before).
 - **`integration/test_conversation_workflow.py`** — the durability-sensitive
   properties: the D13 turn queue ordering, the D3 continue-as-new rollover
-  boundary, and messages answered in order across a forced rollover.
+  boundary, and messages answered in order across a forced rollover. It also
+  holds the shared workflow fixtures other integration tests import.
+- **`integration/test_audit_workflow.py`** and **`integration/test_audit_store.py`**
+  — the audit stream (D11): an approval is not acted on until its audit row is
+  written (a store outage stalls it), an outage never blocks an escalation, and
+  the database itself rejects `UPDATE`, `DELETE` and `TRUNCATE`.
+- **`unit/test_ci_alignment.py`** — what ships is what is tested: it fails when
+  the Dockerfile's Python version or the `requires-python` floor is missing from
+  the CI test matrix.
 
 The adapter runs fine outside Temporal, so most tests drive it directly with a
 `FunctionModel` rather than standing up a server.
