@@ -1,0 +1,8 @@
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+.env*.local
+
+# The repo root ignores `lib/` (a Python packaging rule); this one is source code.
+!lib/

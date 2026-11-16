@@ -1,0 +1,9 @@
+.git
+.venv
+.env
+.pytest_cache
+.ruff_cache
+**/__pycache__
+# The dev console is a separate Node project; none of it belongs in the image or in
+# the build context (node_modules alone is hundreds of MB).
+console

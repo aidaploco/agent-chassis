@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **A dev console (`console/`).** A Next.js app to see what the chassis does: switch
+  between Employees, chat, and see under every reply the input checks, the agent (and
+  hand-off), the tools and the output checks, with a role panel read from the running
+  chassis. `docker-compose.console.yml` runs Lana and Nova side by side (one api and worker
+  each, their own task queue and port). The browser never holds the token: the app's own
+  routes add it. It is a dev tool and adds nothing to the chassis's runtime. It has no
+  login of its own, so the console and every compose port bind to 127.0.0.1 only. A
+  `.dockerignore` keeps `console/` (and `.env`, `.git`) out of the image build context.
+- `GET /v1/self` now also returns `guardrail_details` (each guardrail with its stage,
+  `input` or `output`), `entry_agent` and `agent_graph` (each agent, its capabilities and
+  who it can route to). Additive: `guardrails` is unchanged.
+- CI gains a `console` job (lint, typecheck, tests, build) in `ci-success`, and Dependabot
+  covers `console/`.
 - **Tools run at-least-once; `idempotency_key()` lets them cope.** A worker killed
   after a tool did its work but before Temporal recorded it re-runs the tool: measured
   with a ticket-creating tool, the retry made a second ticket. New

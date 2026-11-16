@@ -1,0 +1,51 @@
+@import 'tailwindcss';
+
+:root {
+  --bg: #f6f5f3;
+  --card: #ffffff;
+  --ink: #1c1b19;
+  --muted: #6b6860;
+  --line: #e4e1db;
+  --accent: #4f46e5;
+  --pass: #15803d;
+  --block: #b91c1c;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-pass: var(--pass);
+  --color-block: var(--block);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131211;
+    --card: #1c1b19;
+    --ink: #efede8;
+    --muted: #9a968c;
+    --line: #34312c;
+    --accent: #818cf8;
+    --pass: #4ade80;
+    --block: #f87171;
+  }
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* Replies are markdown from the model: keep lists and emphasis readable. */
+.prose-reply p { margin: 0.4em 0; }
+.prose-reply ul, .prose-reply ol { margin: 0.4em 0; padding-left: 1.3em; }
+.prose-reply ul { list-style: disc; }
+.prose-reply ol { list-style: decimal; }
+.prose-reply code { background: color-mix(in srgb, var(--ink) 8%, transparent); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.9em; }
+.prose-reply strong { font-weight: 600; }
+.prose-reply a { color: var(--accent); text-decoration: underline; }

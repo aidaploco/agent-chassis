@@ -15,6 +15,8 @@ from agent_chassis.manifest import RoleManifest
 from agent_chassis.memory.base import MemoryEntry
 from agent_chassis.memory.pack import MemoryPack
 from agent_chassis.packs import CapabilityPack, PackConfig, PackRegistry, ToolSpec
+from agent_chassis.packs.guardrails import MessageLengthGuardrail
+from agent_chassis.packs.output_guardrails import ReplyLengthGuardrail
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -90,6 +92,38 @@ async def test_self_description_content(resolved):
     assert any("ended resolved" in line for line in description.recent_outcomes)
 
 
+async def test_self_description_graph_and_guardrail_stages(resolved):
+    """The console draws a turn from these: which agents can route where, and
+    which side each guardrail runs on."""
+    description = await build_self_description(resolved, RecentFakeSubstrate())
+
+    assert description.entry_agent == "supervisor"
+    graph = {a.name: a for a in description.agent_graph}
+    assert set(graph) == {"billing", "supervisor", "support"}
+    assert "billing" in graph["supervisor"].routes_to
+    assert graph["billing"].capabilities == ["billing"]
+
+    registry = PackRegistry()
+    registry.register(BillingPack())
+    registry.register(SupportPack())
+    registry.register(MemoryPack())
+    registry.register(IntrospectionPack())
+    registry.register(MessageLengthGuardrail())
+    registry.register(ReplyLengthGuardrail())
+    data = yaml.safe_load((FIXTURES / "lana.yaml").read_text())
+    data["capabilities"][0]["config"] = {}
+    data["guardrails"] = [{"pack": "message_length"}, {"pack": "reply_length"}]
+    guarded = registry.resolve(RoleManifest.model_validate(data))
+
+    described = await build_self_description(guarded, RecentFakeSubstrate())
+
+    assert [(g.name, g.stage) for g in described.guardrail_details] == [
+        ("message_length", "input"),
+        ("reply_length", "output"),
+    ]
+    assert described.guardrails == ["message_length", "reply_length"]  # unchanged
+
+
 async def test_self_description_survives_sick_substrate(resolved):
     class SickSubstrate(RecentFakeSubstrate):
         async def recent(self, kinds=None, limit=5):
@@ -115,6 +149,27 @@ async def test_self_endpoint(resolved):
     assert response.status_code == 200
     body = response.json()
     assert body["employee"] == "lana" and body["recent_outcomes"]
+
+
+async def test_describe_self_tool_does_not_expose_the_client_only_fields(resolved):
+    """guardrail_details / entry_agent / agent_graph are for API clients; the model
+    keeps seeing exactly what it always did."""
+    set_role_runtime(
+        RoleRuntime(
+            resolved=resolved,
+            adapter=None,  # type: ignore[arg-type]
+            handle=None,  # type: ignore[arg-type]
+            substrate=RecentFakeSubstrate(),
+        )
+    )
+    pack = IntrospectionPack()
+    (spec,) = pack.tools(pack.config_model())
+
+    output = await spec.handler()
+
+    assert '"capabilities"' in output and '"guardrails"' in output
+    for hidden in ("agent_graph", "guardrail_details", "entry_agent"):
+        assert hidden not in output
 
 
 async def test_describe_self_tool(resolved):
