@@ -29,6 +29,7 @@ durable/       the Temporal workflow shell that orchestrates a turn
 channels/      normalize HTTP/Slack ⇄ MessageEnvelope
 memory/        retrieval + write-back substrate
 audit/         append-only audit table (approvals, escalations, overrides)
+outcomes/      append-only outcome table (one row per finished conversation or task)
 evals/         the behavioral regression contract
 utils/         vendor-agnostic LLM calls + logging
 ```
@@ -37,6 +38,7 @@ Top-level modules that don't warrant a folder:
 
 - [`config.py`](config.py) — `ChassisSettings`, every env var, the tier→model map.
 - [`role_loader.py`](role_loader.py) — shared manifest→registry→`ResolvedRole` path.
+- [`pgstore.py`](pgstore.py) — Postgres plumbing shared by the audit and outcome stores: pool, DDL lock, append-only triggers.
 - [`introspection.py`](introspection.py) — the `/v1/self` self-description and the `describe_self` builtin tool.
 - [`observability.py`](observability.py) — OTLP/Phoenix tracing setup (fail-soft; no-ops without a collector).
 

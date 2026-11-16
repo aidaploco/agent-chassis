@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0 — 2026-11-16
+
+Adds the outcome table (D12). No upgrade steps: the worker creates
+`chassis_outcomes` at start, with the same Postgres access it already needs for
+the audit table.
+
+- **Outcome table (D12).** Every finished conversation or task now also writes a
+  row to an append-only `chassis_outcomes` table (typed columns, unique per run),
+  emits a span `outcome <task_type>`, and keeps its log line and memory entry. A
+  store outage is retried for about three minutes and then given up on without
+  holding the workflow open (the log line has the full event for a backfill).
+  The exact JSON of `OutcomeEvent` is now pinned by a golden test; the contract
+  is unchanged (`event_version` 1). No read API; query the table.
+- The audit and outcome stores share a pool helper: a worker now holds at most 4
+  connections per store (it was 4 idle per pool), and a Postgres restart no longer
+  strands the next write on a dead connection.
+
 ## 0.5.1 — 2026-11-16
 
 A fix for a regression in 0.4.0 and 0.5.0. No upgrade steps.

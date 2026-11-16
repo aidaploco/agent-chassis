@@ -32,6 +32,7 @@ from agent_chassis.durable.workflows import ConversationWorkflow, TaskWorkflow
 from agent_chassis.manifest import RoleManifest, load_manifest
 from agent_chassis.memory.pgvector import PgVectorSubstrate
 from agent_chassis.observability import setup_tracing
+from agent_chassis.outcomes import PgOutcomeSink
 from agent_chassis.role_loader import build_substrate, load_role
 from agent_chassis.utils.logger import get_logger
 
@@ -84,11 +85,20 @@ def build_audit_sink(settings: ChassisSettings) -> PgAuditSink | None:
     """
     if not settings.postgres_url:
         _logger.warning(
-            "POSTGRES_URL is not set — approvals, escalations and manifest"
-            " overrides are only logged; there is no durable audit record (D11)"
+            "POSTGRES_URL is not set — approvals, escalations, manifest overrides"
+            " and outcome events are only logged; there is no durable audit"
+            " record (D11) or outcome feed (D12)"
         )
         return None
     return PgAuditSink(settings.postgres_url)
+
+
+def build_outcome_sink(settings: ChassisSettings) -> PgOutcomeSink | None:
+    """The outcome feed's store (D12), or ``None`` without a database. The
+    audit sink's warning already says outcomes are log-only in that case."""
+    if not settings.postgres_url:
+        return None
+    return PgOutcomeSink(settings.postgres_url)
 
 
 def build_runtime(settings: ChassisSettings) -> RoleRuntime:
@@ -125,6 +135,7 @@ def build_runtime(settings: ChassisSettings) -> RoleRuntime:
         substrate=substrate,
         approvers_sender=build_approvers_sender(settings, manifest),
         audit=build_audit_sink(settings),
+        outcomes=build_outcome_sink(settings),
     )
 
 
@@ -158,6 +169,8 @@ async def run_worker(shutdown: asyncio.Event) -> None:
                 manifest_sha256=manifest_digest(settings.manifest_path),
             )
             _logger.info("audit: %d manifest override(s) newly recorded", recorded)
+        if isinstance(runtime.outcomes, PgOutcomeSink):
+            await runtime.outcomes.start()
         set_role_runtime(runtime)
 
         handle = runtime.handle
@@ -206,6 +219,8 @@ async def run_worker(shutdown: asyncio.Event) -> None:
             await runtime.substrate.close()
         if isinstance(runtime.audit, PgAuditSink):
             await runtime.audit.close()
+        if isinstance(runtime.outcomes, PgOutcomeSink):
+            await runtime.outcomes.close()
 
 
 def main() -> None:  # pragma: no cover - process entrypoint

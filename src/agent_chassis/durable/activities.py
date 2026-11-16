@@ -28,6 +28,33 @@ _tracer = trace.get_tracer("agent_chassis.durable.activities")
 _RECENT = 1000
 
 
+def _attempt() -> int:
+    """Which attempt of this activity is running (1 outside an activity, as in
+    unit tests that call the method directly)."""
+    try:
+        return activity.info().attempt
+    except RuntimeError:
+        return 1
+
+
+def _outcome_attributes(event: OutcomeEvent) -> dict[str, str | int | list[str]]:
+    return {
+        "session.id": event.conversation_id,
+        "outcome.role": event.role,
+        "outcome.tenant": event.tenant,
+        "outcome.task_type": event.task_type,
+        "outcome.resolution": event.resolution.value,
+        "outcome.turns": event.turns,
+        "outcome.tool_calls": event.tool_calls,
+        "outcome.wall_time_ms": event.wall_time_ms,
+        "outcome.tokens_in": event.tokens_in,
+        "outcome.tokens_out": event.tokens_out,
+        "outcome.escalations": event.escalations,
+        "outcome.guardrail_trips": event.guardrail_trips,
+        "outcome.models_used": list(event.models_used),
+    }
+
+
 def render_notice(notice: ApproverNotice) -> str:
     """The text an approver reads — enough to act on without opening a log.
 
@@ -138,14 +165,35 @@ class ChassisActivities:
 
     @activity.defn
     async def emit_outcome(self, event: OutcomeEvent) -> None:
-        self.emitted_outcomes.append(event)
-        _logger.info("outcome_event %s", json.dumps(event.model_dump(mode="json")))
-        await self._write_back(
-            "outcome",
-            f"Conversation {event.conversation_id} ended {event.resolution}:"
-            f" {event.turns} turns, {event.escalations} escalations.",
-            {"conversation_id": event.conversation_id},
-        )
+        """D12: the finished conversation or task becomes a log line, a span, a
+        row in the outcome table and a memory entry.
+
+        The log line carries the whole event and is written first, once: it is
+        the source a lost row can be backfilled from. The row write raises on a
+        store failure so Temporal retries it; the workflow bounds the retries
+        and then gives up (an outcome is a metric, not an accountability record,
+        so it never holds a workflow open). The memory entry is written only once
+        the row has landed, so retries do not duplicate it.
+        """
+        first_attempt = _attempt() == 1
+        if first_attempt:
+            self.emitted_outcomes.append(event)
+            _logger.info("outcome_event %s", json.dumps(event.model_dump(mode="json")))
+        # A dedicated span: an outcome is emitted when a conversation idles out,
+        # when no request trace is active, so there is no span to hang an event on.
+        with _tracer.start_as_current_span(
+            f"outcome {event.task_type}", attributes=_outcome_attributes(event)
+        ):
+            written = True
+            if self._runtime.outcomes is not None:
+                written = await self._runtime.outcomes.record(event)
+        if written and (first_attempt or self._runtime.outcomes is not None):
+            await self._write_back(
+                "outcome",
+                f"Conversation {event.conversation_id} ended {event.resolution}:"
+                f" {event.turns} turns, {event.escalations} escalations.",
+                {"conversation_id": event.conversation_id},
+            )
 
     @activity.defn
     async def record_escalation(self, record: EscalationRecord) -> None:

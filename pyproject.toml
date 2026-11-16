@@ -1,6 +1,6 @@
 [project]
 name = "agent-chassis"
-version = "0.5.1"
+version = "0.6.0"
 description = "Runtime chassis for role-based AI Employees: role manifests + capability packs on a durable execution core."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -95,7 +95,9 @@ source_modules = [
     "agent_chassis.manifest",
     "agent_chassis.memory",
     "agent_chassis.observability",
+    "agent_chassis.outcomes",
     "agent_chassis.packs",
+    "agent_chassis.pgstore",
     "agent_chassis.role_loader",
     "agent_chassis.utils",
 ]

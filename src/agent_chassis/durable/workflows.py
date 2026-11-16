@@ -65,7 +65,37 @@ _DELIVERY_RETRY = RetryPolicy(maximum_attempts=4)
 # D14 patch ids — every entry here has a row in PATCHES.md.
 _PATCH_COMPACT_BY_HISTORY_TURNS = "compaction-by-history-turns"
 _PATCH_NOTIFY_APPROVERS = "notify-approvers"
+
+# The outcome row is a metric: retry through a Postgres restart (about 3 minutes
+# of attempts), then give up loudly rather than hold the workflow open. The log
+# line the activity writes first has the whole event for a backfill.
+_OUTCOME_RETRY = RetryPolicy(
+    initial_interval=timedelta(seconds=2),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=60),
+    maximum_attempts=8,
+)
 _NOTIFY_ACTIVITY_TIMEOUT = timedelta(seconds=15)
+
+
+async def _emit_outcome_event(event: "OutcomeEvent") -> None:
+    """Record a finished conversation or task (D12): bounded retries, never fatal."""
+    retry = get_role_runtime().outcome_retry or _OUTCOME_RETRY
+    try:
+        await workflow.execute_activity(
+            "emit_outcome",
+            event,
+            start_to_close_timeout=_EMIT_ACTIVITY_TIMEOUT,
+            retry_policy=retry,
+        )
+    except ActivityError as exc:
+        workflow.logger.error(
+            "outcome row not recorded after retries role=%s run=%s: %s"
+            " (the outcome_event log line has the full event)",
+            event.role,
+            event.workflow_run_id,
+            exc.cause or exc,
+        )
 
 
 async def _notify_approvers(notice: "ApproverNotice") -> None:
@@ -492,8 +522,7 @@ class ConversationWorkflow:
             resolution = Resolution.RESOLVED
         else:
             resolution = Resolution.ABANDONED
-        await workflow.execute_activity(
-            "emit_outcome",
+        await _emit_outcome_event(
             _outcome_event(
                 role=self._manifest.employee.name,
                 tenant=self._params.tenant,
@@ -502,8 +531,7 @@ class ConversationWorkflow:
                 state=state,
                 resolution=resolution,
                 turns=state.turn_number,
-            ),
-            start_to_close_timeout=_EMIT_ACTIVITY_TIMEOUT,
+            )
         )
 
 
@@ -800,8 +828,7 @@ class TaskWorkflow:
             resolution = Resolution.ESCALATED
         else:
             resolution = Resolution.RESOLVED
-        await workflow.execute_activity(
-            "emit_outcome",
+        await _emit_outcome_event(
             _outcome_event(
                 role=self._manifest.employee.name,
                 tenant=self._params.tenant,
@@ -810,6 +837,5 @@ class TaskWorkflow:
                 state=self._state,
                 resolution=resolution,
                 turns=runs,
-            ),
-            start_to_close_timeout=_EMIT_ACTIVITY_TIMEOUT,
+            )
         )
