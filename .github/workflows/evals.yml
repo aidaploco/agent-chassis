@@ -31,7 +31,9 @@ jobs:
   lana:
     # Secrets are not given to fork PRs, and this repo's own CI already skips
     # them; skip here too rather than fail on a missing key.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Dependabot PRs are not given repository secrets either, so the job could
+    # only fail on them.
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
