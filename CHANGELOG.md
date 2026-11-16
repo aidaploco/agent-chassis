@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.1 — 2026-11-16
+
+A fix for a regression in 0.4.0 and 0.5.0. No upgrade steps.
+
+### Fixed
+
+- **The `off_topic` guardrail refused ordinary greetings.** The "quoted data"
+  framing added in 0.4.0 (to stop the guardrail model obeying "write me a poem")
+  made it judge messages too literally: measured on the Lana role, 42 of 120
+  greetings were refused ("Hi there!" 15 of 20; "Hey, quick question" 20 of 20),
+  against 0 of 120 before. The verdict is now requested as a JSON object in the
+  provider's JSON mode with the message sent unwrapped, and the `off_topic` policy
+  says a conversation opener passes. Measured (20 runs per message): 0 of 400
+  false positives on off-topic and 0 of 200 on injection, with every off-topic
+  request and injection caught, including the tag-closing attack. Live on the
+  stack: 0 of 180 greetings refused. A JSON reply with no valid verdict is
+  unreadable and fails closed.
+- **The eval suite could not see it**, because the greeting case only checked that
+  the supervisor replied, and a refusal is a reply. The greeting cases now assert
+  the guardrails pass, and a case can carry its own `min_pass_rate` (they use
+  `1.0`), since the suite's 2-of-3 tolerance hides a 1-in-6 refusal rate. Lana has
+  17 cases.
+
 ## 0.5.0 — 2026-11-16
 
 Adds the audit table and puts approvals on the audit store's critical path, so

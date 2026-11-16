@@ -12,7 +12,7 @@ Onboarding a new Employee should be **new YAML, not new code.** Everything that 
 
 Two Employees ship in [`examples/`](examples/) as permanent fixtures, plus a minimal third:
 
-- **Lana**: customer service (a routing supervisor, billing and support specialists, guardrails, memory). Proves the chassis can carry a real multi-agent conversational role. Ships 15 eval cases.
+- **Lana**: customer service (a routing supervisor, billing and support specialists, guardrails, memory). Proves the chassis can carry a real multi-agent conversational role. Ships 17 eval cases.
 - **Nova**: operations reporting. Runs on a cron schedule and **pauses for human approval** before publishing. Proves a very different role shape needs zero chassis changes.
 - **Echo** (`skeleton/`): one agent, one trivial tool. The walking skeleton, and the default role for `docker compose up`.
 
@@ -118,7 +118,7 @@ uv run lint-imports                              # the adapter seam contract (D2
 
 The unit tests need nothing external. The integration tests run Temporal's local dev server, and the Postgres-backed tests (memory and the audit table) start a throwaway container, so Docker must be running: without it they skip locally and fail in CI. CI runs lint, pyright and import-linter, and the full suite on Python 3.13 and 3.15 with an 80% coverage gate; the live evals run separately (below).
 
-The **eval harness** (D17) drives real conversations through a running Employee and grades them. Lana's suite has 15 cases, including multi-turn and cancel-discipline cases. With the stack up (the runner reads `OPENAI_API_KEY` from the shell, not from `.env`, so export it first):
+The **eval harness** (D17) drives real conversations through a running Employee and grades them. Lana's suite has 17 cases, including multi-turn and cancel-discipline cases. With the stack up (the runner reads `OPENAI_API_KEY` from the shell, not from `.env`, so export it first):
 
 ```bash
 set -a; source .env; set +a

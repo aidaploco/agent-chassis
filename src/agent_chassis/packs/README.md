@@ -39,10 +39,13 @@ and rejected at build.
   every role wants them and the acceptance matrix runs the *same* pack at
   different thresholds across roles. LLM-backed checks go through
   [`utils/llm.py`](../utils/llm.py), never the agent framework. Their verdict is
-  strict `FLAG` / `PASS`: an empty, refused or ambiguous reply trips the
-  guardrail (fail closed) with a stated reason. The judged message is handed over
-  as quoted data inside `<message>` tags, with tag-like text defanged, so a
-  message that says "write me a poem" cannot be obeyed by the guardrail model.
+  requested as a JSON object (`{"verdict": "FLAG"}` / `{"verdict": "PASS"}`) in
+  the provider's JSON mode, with the message sent unwrapped: a model in JSON
+  mode cannot answer "write me a poem" with a poem. An empty, refused, ambiguous
+  or non-conforming reply trips the guardrail (fail closed) with a stated reason.
+  (Wrapping the message in tags was tried and made the model refuse ordinary
+  greetings; see D5.) The Anthropic SDK has no JSON mode, so there the same
+  object is requested in the prompt and a bare `FLAG` / `PASS` is also read.
   `GuardrailPack.check` takes any `PackConfig`; subclasses narrow it inside.
 
 ## How a pack reaches a role
