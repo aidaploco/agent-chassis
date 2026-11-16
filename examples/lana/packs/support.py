@@ -41,7 +41,11 @@ class SupportPack(CapabilityPack):
             " exact ID — never reformat it; if not found, say which ID you"
             " searched.\nFor company, pricing, security, or SLA questions,"
             " answer directly from the knowledge below. Lead with the answer;"
-            " acknowledge issues honestly, no promises on fix timelines.\n" + _KNOWLEDGE
+            " acknowledge issues honestly, no promises on fix timelines.\n"
+            "Not yours: this customer's own account (their subscription,"
+            " invoices, plan changes, cancellations). That belongs to the"
+            " billing specialist: route to billing rather than improvising.\n"
+            + _KNOWLEDGE
         )
 
     def tools(self, config: PackConfig) -> list[ToolSpec]:

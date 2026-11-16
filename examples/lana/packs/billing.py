@@ -62,7 +62,7 @@ _NEEDS_REASON = (
 
 class BillingPack(CapabilityPack):
     name = "billing"
-    description = "this customer's own account: subscription lookup, plan changes, invoices, cancellations (needs account email)"
+    description = "this customer's own account: subscription lookup, plan changes, invoices, cancellations (needs account email); not for what plans cost or include"
 
     def instructions(self, config: PackConfig) -> str:
         return (
@@ -84,8 +84,14 @@ class BillingPack(CapabilityPack):
             " until the customer has stated a reason; a restatement like"
             ' "customer requested cancellation" is not a reason, and you must'
             " never write one yourself.\n"
-            "If any other request doesn't map to anything you can do, say what"
-            " you can do and ask which they mean.\n"
+            "Not yours: general product questions: what a plan costs or"
+            " includes, features and limits, SLA, security, company info, bugs,"
+            " tickets. They belong to the support specialist, who has that"
+            " knowledge. Route to support immediately; never answer that you"
+            " lack the information.\n"
+            "If a request about this customer's own account doesn't map to"
+            " anything you can do, say what you can do and ask which they"
+            " mean.\n"
             "Quote plan names, amounts, and dates verbatim from tool output."
             " Lead with the answer. One issue at a time."
         )
