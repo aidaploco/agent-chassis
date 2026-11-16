@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Lana: plan-pricing questions no longer dead-end in billing.** Questions like
+  "what does the Pro plan cost and what's included?" were routed to billing
+  (sometimes 29 of 30 runs for one phrasing; 76% correct across a 9-question
+  pricing set), and billing, with no way to hand back, answered "I don't have the
+  catalog". Billing and support now have direct edges and each says what is not
+  theirs: 270/270 correct after, with no change to the cancel-discipline rate
+  (0/30) and the live suite at 13/13 three times. Two eval cases guard it.
 - **Types are checked in CI** with pyright (standard mode, `uv run pyright`).
   First run found 15 errors in `src/`, fixed rather than suppressed: the pgvector
   SQL is now composed with `psycopg.sql` (the table name is quoted as an

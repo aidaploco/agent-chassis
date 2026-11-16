@@ -28,6 +28,19 @@
   expected_agent: support
   quality_prompt: "States $199/month and Pro features (5M events, 30-day history, 10 seats) accurately."
 
+# Regression: a plan-cost question used to reach billing, which dead-ended with
+# "I don't have the catalog" (billing had no edge to support). It must end with
+# support, which owns the plan catalog.
+- id: support_pricing_seats_events
+  messages: [{role: user, content: "How many seats and events do I get on Pro, and what does it cost?"}]
+  expected_agent: support
+  quality_prompt: "States Pro is $199/month with 5M events and 10 seats; does not say it lacks the information."
+
+- id: support_enterprise_pricing_is_custom
+  messages: [{role: user, content: "What does Enterprise cost?"}]
+  expected_agent: support
+  quality_prompt: "Says Enterprise pricing is custom (not a fixed price) and may mention its features such as SSO and the 99.99% SLA; does not invent a number and does not say it lacks the information."
+
 - id: support_ticket_status
   messages: [{role: user, content: "What's the status of ticket BL-10001?"}]
   expected_agent: support

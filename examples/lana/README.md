@@ -7,8 +7,12 @@ carry a real, multi-agent conversational role.
 ## Shape
 
 - **Routing graph:** a `supervisor` front door routes to `billing` or `support`
-  specialists and back (D4). The supervisor runs on the `standard` tier — a
-  deliberate choice: on `light` it misrouted pricing/plan questions.
+  specialists and back (D4), and the two specialists can hand off to each other
+  directly. The supervisor runs on the `standard` tier — a deliberate choice: on
+  `light` it misrouted pricing/plan questions. Even on `standard`, "what does Pro
+  cost" often reached billing; with no way to hand back, billing dead-ended with
+  "I don't have the catalog" (up to 29 of 30 runs for one phrasing). The direct
+  edges plus a "not yours" line in each specialist's instructions fixed that.
 - **Guardrails:** the builtin trio (message length, prompt-injection,
   off-topic) at Lana-specific thresholds/topic.
 - **Memory:** `pgvector`, collection `lana`.

@@ -35,6 +35,10 @@ routing:
     - [supervisor, support]
     - [billing, supervisor]
     - [support, supervisor]
+    # Specialists hand off directly: a plan-pricing question that reached
+    # billing used to dead-end there ("I don't have the catalog").
+    - [billing, support]
+    - [support, billing]
   max_hops_per_message: 3
 channels: [http]
 guardrails:
