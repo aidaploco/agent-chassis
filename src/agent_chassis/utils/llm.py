@@ -11,6 +11,7 @@ provider per process.
 from functools import lru_cache
 
 from anthropic import AsyncAnthropic
+from anthropic.types import MessageParam
 from openai import AsyncOpenAI
 
 _DEFAULT_MAX_TOKENS = 1024
@@ -41,7 +42,9 @@ async def complete(
     max_tokens: int | None = None,
     force_json: bool = False,
 ) -> str:
-    """One system+user turn, deterministic (temperature 0), text back.
+    """One system+user turn, text back. Deterministic (temperature 0) on
+    OpenAI; the Anthropic SDK no longer accepts a temperature, so there it is
+    the provider default.
 
     Args:
         model: Provider-prefixed model string (``openai:gpt-4o-mini``,
@@ -75,12 +78,16 @@ async def complete(
         )
         return response.choices[0].message.content or ""
     if provider == "anthropic":
+        messages: list[MessageParam] = [{"role": "user", "content": user}]
         response = await _anthropic().messages.create(
             model=name,
             max_tokens=max_tokens or _DEFAULT_MAX_TOKENS,
-            temperature=0,
+            # No `temperature`: anthropic 2.x's messages.create no longer takes
+            # one, and passing it is a TypeError. (The openai path below still
+            # pins temperature 0, so only the Anthropic verdicts are not
+            # sampled deterministically.)
             system=system,
-            messages=[{"role": "user", "content": user}],
+            messages=messages,
         )
         return "".join(block.text for block in response.content if block.type == "text")
     raise ValueError(

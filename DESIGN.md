@@ -36,8 +36,8 @@ left as decided; these parts of it are not in the code yet:
 - **D17:** pack-bundled suites are declared but not read by the runner. Lana's
   suite runs nightly in CI (`.github/workflows/evals.yml`, 3 runs per case, 2
   of 3 must pass); it is not part of the per-PR gate.
-- **Quality gates:** no type checker runs. The eval suite is a nightly
-  advisory job, not a per-PR gate.
+- **Quality gates:** the eval suite is a nightly advisory job, not a per-PR
+  gate. (pyright, standard mode, runs in CI.)
 
 ## What this is
 
@@ -900,11 +900,11 @@ started_at / ended_at: datetime (UTC)
 
 ## Quality gates
 
-Annotated throughout; ruff (format + lint) clean; pytest with coverage gate
-(≥80%); Temporal tests against a real local dev server (updates and CAN
-semantics demand it); import-linter contract in CI; conventional commits.
-Planned, not in place: a type checker, and a per-PR eval gate (the suite runs
-nightly instead; see the status block at the top).
+Typed throughout; ruff (format + lint) and pyright (standard mode) clean in CI;
+pytest with coverage gate (≥80%); Temporal tests against a real local dev
+server (updates and CAN semantics demand it); import-linter contract in CI;
+conventional commits. Planned, not in place: a per-PR eval gate (the suite
+runs nightly instead; see the status block at the top).
 
 ## Configuration contract
 

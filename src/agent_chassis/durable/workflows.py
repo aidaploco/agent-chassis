@@ -7,6 +7,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from opentelemetry import context as otel_context
+    from opentelemetry.context import Context
 
     from agent_chassis.channels.base import OutboundDelivery
     from agent_chassis.contracts import (
@@ -149,7 +150,7 @@ class _PendingTurn:
     # attached the caller's context). The queue decouples handling from
     # processing, so without this every turn's activity spans would land in
     # whichever trace was attached last.
-    trace_context: object | None = None
+    trace_context: Context | None = None
 
 
 @workflow.defn

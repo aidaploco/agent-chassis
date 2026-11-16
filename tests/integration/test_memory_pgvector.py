@@ -247,3 +247,31 @@ async def test_migration_defaults_pre_provenance_rows_to_least_trust(postgres_ur
         assert entries[0].author == "unknown"
     finally:
         await store.close()
+
+
+async def test_table_name_is_quoted_not_interpolated(postgres_url):
+    """The table name is composed as an identifier. A hostile one must become
+    an oddly named table, not executable SQL."""
+    sentinel = f"sentinel_{uuid.uuid4().hex[:8]}"
+    conn = psycopg.connect(postgres_url, autocommit=True)
+    try:
+        conn.execute(f"CREATE TABLE {sentinel} (id int)")
+        store = PgVectorSubstrate(
+            postgres_url,
+            collection="c",
+            embedder=FakeEmbedder(),
+            table=f'evil"; DROP TABLE {sentinel}; --',
+        )
+        await store.start()
+        try:
+            await store.record("knowledge", "billing note", source="user", author="t")
+            assert (await store.retrieve("billing", limit=1))[
+                0
+            ].content == "billing note"
+            assert (await store.recent(limit=1))[0].content == "billing note"
+        finally:
+            await store.close()
+        # The "injection" did not run: the sentinel table is still there.
+        assert conn.execute(f"SELECT count(*) FROM {sentinel}").fetchone() == (0,)
+    finally:
+        conn.close()

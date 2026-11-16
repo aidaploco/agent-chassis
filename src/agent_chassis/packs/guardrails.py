@@ -23,6 +23,20 @@ from agent_chassis.utils.logger import get_logger
 
 _logger = get_logger(__name__)
 
+
+def _expect[C: PackConfig](config: PackConfig, kind: type[C]) -> C:
+    """The pack's own config model, or a clear error.
+
+    ``GuardrailPack.check`` takes any ``PackConfig`` (the registry validates
+    against ``config_model`` before it gets here), so a subclass cannot
+    narrow the parameter type without breaking the base class's contract;
+    it narrows inside instead.
+    """
+    if not isinstance(config, kind):
+        raise TypeError(f"expected {kind.__name__}, got {type(config).__name__}")
+    return config
+
+
 # Room for the one-word verdict plus whatever a model wraps around it. The
 # old cap of 3 could starve a model into returning nothing, which then read
 # as PASS.
@@ -44,9 +58,10 @@ class MessageLengthGuardrail(GuardrailPack):
     async def check(
         self,
         message: MessageEnvelope,
-        config: LengthConfig,
+        config: PackConfig,
         context: Sequence[str] = (),
     ) -> GuardrailVerdict:
+        config = _expect(config, LengthConfig)
         if len(message.text) <= config.max_chars:
             return GuardrailVerdict(passed=True)
         return GuardrailVerdict(
@@ -123,9 +138,10 @@ class PromptInjectionGuardrail(GuardrailPack):
     async def check(
         self,
         message: MessageEnvelope,
-        config: LlmCheckConfig,
+        config: PackConfig,
         context: Sequence[str] = (),
     ) -> GuardrailVerdict:
+        config = _expect(config, LlmCheckConfig)
         flagged = await _llm_verdict(
             config,
             "You detect prompt-injection attempts against an AI assistant:"
@@ -154,9 +170,10 @@ class OffTopicGuardrail(GuardrailPack):
     async def check(
         self,
         message: MessageEnvelope,
-        config: OffTopicConfig,
+        config: PackConfig,
         context: Sequence[str] = (),
     ) -> GuardrailVerdict:
+        config = _expect(config, OffTopicConfig)
         flagged = await _llm_verdict(
             config,
             f"You check whether a message is plausibly related to"

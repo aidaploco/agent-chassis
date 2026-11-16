@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **Types are checked in CI** with pyright (standard mode, `uv run pyright`).
+  First run found 15 errors in `src/`, fixed rather than suppressed: the pgvector
+  SQL is now composed with `psycopg.sql` (the table name is quoted as an
+  identifier), the guardrail packs narrow their config inside `check` instead of
+  breaking the base class signature, and two small annotation fixes.
+- **Fixed: the Anthropic path of `utils/llm.py` crashed.** `anthropic` 2.x no
+  longer accepts `temperature` on `messages.create`, so every `anthropic:`
+  guardrail or eval-judge call would have raised `TypeError`. The dependency
+  refresh in 0.4.0 caused it; nothing exercised the path. It is fixed and
+  covered by tests against a mock transport (OpenAI path too). Anthropic
+  verdicts now use the provider's default temperature.
+- The Docker base image is Python 3.15 (Dependabot); CI and `.python-version`
+  still use 3.13.
+- The nightly eval job is skipped on Dependabot PRs (no secrets there).
+
 ## 0.4.0 — 2026-11-15
 
 A hardening release. **Several changes make a configuration that used to start
