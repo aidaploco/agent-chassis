@@ -1,0 +1,122 @@
+# Two Employees side by side, for the dev console (console/).
+#
+#   docker compose -f docker-compose.console.yml up --build
+#
+# Each Employee is its own api + worker pair on its own Temporal task queue and
+# host port, sharing one Temporal and one Postgres. That is how a deployment runs
+# them (one agent-unit per Employee, D16); the chassis hosts one role per worker,
+# so "switching Employee" in the console means talking to a different pair, with no
+# restart.
+#
+#   lana  http://localhost:8001   conversations, routing, guardrails
+#   nova  http://localhost:8002   scheduled tasks and human approval
+#
+# Use this file OR the default docker-compose.yml, not both: they claim the same
+# host ports. Needs the same .env as the default stack (OPENAI_API_KEY and
+# TEMPORAL_PAYLOAD_CODEC_KEY).
+#
+# DEV ONLY. HTTP_BEARER_TOKENS turns authentication on for every endpoint of a
+# unit (D21) and is what lets Nova serve /v1/tasks and /v1/approvals at all. The
+# default token below is a published constant, so every published port is bound to
+# 127.0.0.1: only this machine can reach them. Override CONSOLE_DEV_TOKEN, and do not
+# change the bindings.
+
+# One image for all four units. Only lana-api builds it (four services building the
+# same tag at once race); the others reuse it, and `up --build` builds before it starts.
+x-chassis: &chassis
+  image: agent-chassis-console
+  pull_policy: never
+  env_file:
+    - .env
+  depends_on: &chassis-deps
+    temporal:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+
+x-env: &chassis-env
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_NAMESPACE: default
+  TEMPORAL_PAYLOAD_CODEC_KEY: ${TEMPORAL_PAYLOAD_CODEC_KEY:?Set in .env — openssl rand -base64 32}
+  POSTGRES_URL: postgresql://chassis:chassis@postgres:5432/chassis
+  MANIFEST_PATH: /app/role/manifest.yaml
+  PACKS_DIR: /app/role/packs
+  HTTP_BEARER_TOKENS: ${CONSOLE_DEV_TOKEN:-dev-console-token}:console
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-${PHOENIX_COLLECTOR_ENDPOINT:-}}
+  OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+
+services:
+  temporal:
+    image: temporalio/temporal:1.7.2
+    command: ["server", "start-dev", "--ip", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:7234:7233"
+      - "127.0.0.1:8234:8233" # Temporal UI
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: chassis
+      POSTGRES_PASSWORD: chassis
+      POSTGRES_DB: chassis
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chassis"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  lana-api:
+    <<: *chassis
+    build: .
+    pull_policy: build
+    ports:
+      - "127.0.0.1:8001:8000"
+    environment:
+      <<: *chassis-env
+      TEMPORAL_TASK_QUEUE: lana
+    volumes:
+      - ./examples/lana/manifest.yaml:/app/role/manifest.yaml:ro
+      - ./examples/lana/packs:/app/role/packs:ro
+
+  lana-worker:
+    <<: *chassis
+    command: ["python", "-m", "agent_chassis.worker"]
+    environment:
+      <<: *chassis-env
+      TEMPORAL_TASK_QUEUE: lana
+    volumes:
+      - ./examples/lana/manifest.yaml:/app/role/manifest.yaml:ro
+      - ./examples/lana/packs:/app/role/packs:ro
+
+  nova-api:
+    <<: *chassis
+    ports:
+      - "127.0.0.1:8002:8000"
+    environment:
+      <<: *chassis-env
+      TEMPORAL_TASK_QUEUE: nova
+    volumes:
+      - ./examples/nova/manifest.yaml:/app/role/manifest.yaml:ro
+      - ./examples/nova/packs:/app/role/packs:ro
+
+  nova-worker:
+    <<: *chassis
+    command: ["python", "-m", "agent_chassis.worker"]
+    environment:
+      <<: *chassis-env
+      TEMPORAL_TASK_QUEUE: nova
+    volumes:
+      - ./examples/nova/manifest.yaml:/app/role/manifest.yaml:ro
+      - ./examples/nova/packs:/app/role/packs:ro
+
+volumes:
+  postgres_data:

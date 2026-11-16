@@ -118,6 +118,15 @@ at-least-once. The kill-to-reply delay was only measured for model and guardrail
 activities (36 to 39s); the tool-call runs took about 80s end to end, but that includes
 the test's own 8-second tool, so it is not a clean recovery time.
 
+**Amended 2026-11-16 — the Anthropic provider path was run live.** Until now it was
+covered only by mock-transport tests. Lana's 17-case eval suite was run 3 times per
+case with both model tiers on `anthropic:claude-haiku-5-5` / `claude-sonnet-5-5`, the
+guardrail verdicts (no JSON mode there, so the prompt-based verdict) and the eval judge
+also on Anthropic: 17 of 17 cases passed, with no deadlock errors and no output-guardrail
+trips. The test copy ran with memory switched off, because memory embeddings are OpenAI's
+(the OpenAI account had no credits at the time), so memory on that path is still only
+covered by tests.
+
 ### D2 — Runtime adapter seam: chassis owns the workflow shell
 
 **Decision.** The chassis owns all deterministic orchestration: the message

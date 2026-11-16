@@ -70,6 +70,23 @@ The same conversation in the Temporal UI. Each guardrail check and model call is
 
 ![Temporal event history for a conversation workflow: guardrail activities, agent model requests and a tool call, with encrypted payloads](docs/images/temporal-history.jpg)
 
+## The dev console
+
+To see what the chassis does instead of reading JSON, run the [dev console](console/README.md): switch between Lana and Nova, chat, and see under every reply which input checks passed, which agent answered, which tools it used and whether the reply was checked.
+
+```bash
+docker compose -f docker-compose.console.yml up --build   # Lana and Nova side by side
+cd console && npm ci && npm run dev                        # http://localhost:3100
+```
+
+Lana, after a bug report (the supervisor handed off to support, which called `create_ticket`) and a prompt-injection attempt (refused by an input check before any agent ran):
+
+![The dev console showing Lana: a ticket-creating turn with every check passed, then a refused injection attempt with the later steps greyed out](docs/images/console-lana.jpg)
+
+Nova: an error summary (one tool), then a request to publish a report. She asked for the approval-gated `publish_report`, so the turn ended as an escalation to a human, and the console labels the tools as *requested* because the gated one never ran:
+
+![The dev console showing Nova: an error summary, then a publish request that ended as an escalation with its tools shown as requested](docs/images/console-nova.jpg)
+
 ## Quickstart
 
 Requires Python 3.15+ with [`uv`](https://docs.astral.sh/uv/) for development, and Docker for the full stack (the container image runs Python 3.15 too). The default models are OpenAI's, so running an Employee needs an API key.
@@ -99,7 +116,7 @@ With Lana running, try the mock accounts `dana@example.com` (Pro) and `sam@examp
 | Endpoint | Purpose |
 |---|---|
 | `POST /v1/messages` | Send a message; the reply rides the workflow update result |
-| `GET /v1/self` | The Employee's self-description (capabilities and recent performance) |
+| `GET /v1/self` | The Employee's self-description: capabilities, guardrails with the side each runs on, the routing graph, recent performance |
 | `POST /v1/tasks`, `GET /v1/tasks/{id}` | Start and poll a scheduled or one-shot task |
 | `POST /v1/approvals` | Approve or deny a paused tool call (requires authentication) |
 | `POST /v1/webhooks/slack` | Slack-shaped inbound webhook (HMAC-verified when configured) |
@@ -179,10 +196,12 @@ src/agent_chassis/
   utils/        provider-agnostic LLM helper and logging
   config.py, role_loader.py, api.py, worker.py, introspection.py, observability.py
 examples/       lana, nova, skeleton
+console/        the dev console (Next.js): switch Employees, chat, see each turn's trace
 tests/          unit and integration tests
 scripts/        reproducible image build
-docs/images/    screenshots used in this README
-.github/        CI (lint, types, tests on 3.15), nightly live evals, Dependabot
+docker-compose.console.yml   Lana and Nova side by side, for the console
+docs/images/    screenshots used in this README (traces, the console)
+.github/        CI (lint, types, tests on 3.15, the console), nightly live evals, Dependabot
 DESIGN.md       the numbered decision log
 PATCHES.md      active workflow.patched() ledger (D14)
 CHANGELOG.md    what changed per release, and what to check before upgrading
