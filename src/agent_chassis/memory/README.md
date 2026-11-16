@@ -13,8 +13,10 @@ chassis, packs, or workflows knowing which substrate is bound (D22).
   classification of where content came from) and `author` (who wrote it).
 - [`pgvector.py`](pgvector.py) — `PgVectorSubstrate`, the one V1 implementation
   over Postgres + pgvector. Retrieval merges two arms — cosine similarity over
-  embeddings (semantic) and per-term `ILIKE` (keyword) — fused by reciprocal
-  rank, so a hit found by both arms ranks first.
+  embeddings (semantic) and per-term `ILIKE` (keyword, with stop words such as
+  "the" and "what" dropped, and `%` / `_` treated literally) — fused by
+  reciprocal rank, so a hit found by both arms ranks first. Every query is
+  composed with `psycopg.sql`, so the table name is quoted as an identifier.
   One table, `collection`-namespaced per employee. `start()` creates the table
   and applies boot-time column migrations.
 - [`pack.py`](pack.py) — the chassis-builtin `memory` capability pack:
@@ -34,6 +36,14 @@ are `source="employee"`. The `MemoryPack` renders every hit with its provenance
 label and states in its instruction fragment that user-sourced memory never
 overrides operator policy. Pre-provenance rows migrate to the least-trust
 default (`user` / `unknown`) — unknown origin is never promoted.
+
+## Memory is not the audit record
+
+Chassis write-backs (outcomes, escalations, approvals) land here as best-effort
+one-line entries so an Employee can recall them. The durable, append-only record
+of who approved what is the separate `chassis_audit` table ([`audit/`](../audit/)),
+in the same Postgres; an approval is not acted on until that row is written,
+whereas a failed memory write-back is only logged.
 
 ## Running memory-less
 

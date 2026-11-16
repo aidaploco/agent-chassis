@@ -18,16 +18,23 @@ to the running one after that. They differ only in how the reply gets back:
 ## Files
 
 - [`base.py`](base.py) — `OutboundDelivery` (carries the structured idempotency
-  key `{conversation_id}:{kind}:{sequence}`) and the `OutboundSender` protocol.
-  Outbound activities are at-least-once, so **senders MUST suppress duplicate
-  keys** (D15).
+  key, e.g. `{conversation_id}:turn:{n}` for a reply) and the `OutboundSender`
+  protocol. Outbound activities are at-least-once, so **senders MUST suppress
+  duplicate keys** (D15), and a key is only remembered once the send succeeded,
+  so a failed send's retry is not mistaken for a duplicate.
 - [`http.py`](http.py) — the HTTP channel and the FastAPI app factory. Endpoints:
   `/v1/messages` (chat), `/v1/tasks` + `/v1/tasks/{id}` (kick off / poll a task),
   `/v1/approvals` (approve a paused task), `/v1/self` (introspection),
-  `/healthz`. Also home to `send_to_conversation` (the update-with-start call)
-  and the root turn trace span. Auth is D21 (see below).
+  `/healthz`. An unknown task or workflow id is a 404. Also home to
+  `send_to_conversation` (the update-with-start call) and the root turn trace
+  span. Auth is D21 (see below).
 - [`slack.py`](slack.py) — the Slack-shaped webhook router (ack fast, run the
-  turn in the background) and `SlackOutboundSender` (LRU-deduped push delivery).
+  turn in the background; mounted only when the manifest lists `slack`) and
+  `SlackOutboundSender` (LRU-deduped push delivery). One class serves two
+  purposes: customer replies derive their Slack channel from the conversation id
+  (`slack-C42` posts to `C42`), while the **approvers' sender** is built with
+  `derive_channel=False` and its own webhook (`SLACK_APPROVERS_WEBHOOK_URL`), so
+  an internal escalation notice can never be addressed to a customer's channel.
   Tested against a fake; a real Slack integration swaps the sender's URL/auth
   and nothing else.
 
@@ -37,5 +44,8 @@ The audited identity is **never caller-supplied**. Bearer tokens map to
 principals via `HTTP_BEARER_TOKENS`. When it's unset the posture splits: the
 identity-carrying endpoints (`/v1/tasks`, `/v1/approvals`) refuse to serve
 (503), while `/v1/messages` and `/v1/self` serve anonymously for local dev —
-fail-closed where identity matters, fail-noisy where it doesn't. Slack inbound
-verifies the signing-secret HMAC when `SLACK_SIGNING_SECRET` is set.
+fail-closed where identity matters, fail-noisy where it doesn't. Once tokens are
+configured, `/v1/messages` also takes the message's `sender` from the token's
+principal and ignores the request body's `sender` field (which only names the
+sender in the anonymous local-dev posture). Slack inbound verifies the
+signing-secret HMAC when `SLACK_SIGNING_SECRET` is set.

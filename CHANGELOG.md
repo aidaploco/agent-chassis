@@ -1,39 +1,69 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-11-16
+
+Adds the audit table and puts approvals on the audit store's critical path, so
+read **Check before upgrading** first.
+
+### Check before upgrading
+
+- **A worker with `POSTGRES_URL` set now connects to it at start** to create the
+  audit table, including for a memory-less role (`substrate: none`) that never
+  used the database before. If it is unreachable the worker will not start.
+  Without `POSTGRES_URL` it starts as before and warns that approvals,
+  escalations and overrides are only logged.
+- **A Postgres outage now pauses approvals.** An approval is written to the audit
+  table before the workflow acts on it, and a failed write is retried, not
+  skipped. (Escalations and reminders stay best-effort.)
+- **The container image runs Python 3.15** (it was 3.13). CI tests both 3.13 (the
+  declared floor) and 3.15.
+- **Anthropic verdicts use the provider's default temperature.** The `anthropic`
+  2.x SDK no longer accepts one; see Fixed.
+- The `chassis_audit` table is created automatically. Nothing to run by hand.
+
+### Added
 
 - **Audit table (D11).** Approval decisions, escalations (and reminders) and the
   manifest overrides in force are written to an append-only `chassis_audit`
   table in the same Postgres as memory. The database enforces append-only with
-  triggers (no `UPDATE`, `DELETE` or `TRUNCATE`); writes are idempotent per
-  `(kind, dedupe_key)`, so retries and restarts add nothing. **Approvals fail
-  closed:** the entry must be written before the workflow acts, so a Postgres
-  outage pauses approvals (verified live: a task stalled while the database was
-  down and finished, with one row, once it returned). Escalations are
-  best-effort. Without `POSTGRES_URL` it is logged only and the worker warns.
-  No read API yet: query the table directly.
-- **Lana: plan-pricing questions no longer dead-end in billing.** Questions like
-  "what does the Pro plan cost and what's included?" were routed to billing
-  (sometimes 29 of 30 runs for one phrasing; 76% correct across a 9-question
-  pricing set), and billing, with no way to hand back, answered "I don't have the
-  catalog". Billing and support now have direct edges and each says what is not
-  theirs: 270/270 correct after, with no change to the cancel-discipline rate
-  (0/30) and the live suite at 13/13 three times. Two eval cases guard it.
+  triggers (no `UPDATE`, `DELETE` or `TRUNCATE`; a superuser could still drop
+  them); writes are idempotent per `(kind, dedupe_key)`, so retries and restarts
+  add nothing; overrides are written once per manifest version. Verified live: a
+  task approved while Postgres was down stalled, then finished with exactly one
+  row when it returned. No read API yet; query the table directly (example in
+  `audit/README.md`).
 - **Types are checked in CI** with pyright (standard mode, `uv run pyright`).
-  First run found 15 errors in `src/`, fixed rather than suppressed: the pgvector
-  SQL is now composed with `psycopg.sql` (the table name is quoted as an
-  identifier), the guardrail packs narrow their config inside `check` instead of
-  breaking the base class signature, and two small annotation fixes.
-- **Fixed: the Anthropic path of `utils/llm.py` crashed.** `anthropic` 2.x no
-  longer accepts `temperature` on `messages.create`, so every `anthropic:`
-  guardrail or eval-judge call would have raised `TypeError`. The dependency
-  refresh in 0.4.0 caused it; nothing exercised the path. It is fixed and
-  covered by tests against a mock transport (OpenAI path too). Anthropic
-  verdicts now use the provider's default temperature.
-- The Docker base image is Python 3.15 (Dependabot). CI now tests both 3.13 (the
-  declared floor) and 3.15 (what ships), and a test fails if the image's Python
-  version is ever missing from the CI matrix.
-- The nightly eval job is skipped on Dependabot PRs (no secrets there).
+- **CI tests Python 3.13 and 3.15**, and a test fails if the Dockerfile's Python
+  version or the `requires-python` floor is missing from the matrix.
+- **The live eval job also runs on PRs that can change behaviour** (the Lana
+  role, the packs and adapter code, `utils/llm.py`, the runner), and is skipped on
+  Dependabot PRs, which get no secrets. It stays advisory.
+- Two Lana eval cases for the plan-pricing phrasings that used to fail (15 total).
+
+### Fixed
+
+- **Lana: plan-pricing questions no longer dead-end in billing.** "What does the
+  Pro plan cost and what's included?" reached billing, which has no catalog tools
+  and had no way to hand back, so it answered "I don't have the catalog".
+  Measured per question (30 runs each) across nine pricing phrasings: 205/270
+  correct before (one phrasing failed 29 of 30), 270/270 after. Billing and
+  support now have direct edges and each says what is not theirs. The
+  cancel-discipline rate is unchanged (0/30) and the live suite was 13/13 three
+  times. Sampled rates, not guarantees.
+- **The Anthropic path of `utils/llm.py` crashed.** `anthropic` 2.x no longer
+  accepts `temperature` on `messages.create`, so every `anthropic:` guardrail or
+  eval-judge call would have raised `TypeError`. The 0.4.0 dependency refresh
+  caused it and nothing exercised the path. Found by the type checker; now covered
+  by tests against mock transports (OpenAI too). It has still never run against
+  the real Anthropic API.
+- pgvector SQL is composed with `psycopg.sql` (the table name is quoted as an
+  identifier), and the guardrail packs narrow their config inside `check` instead
+  of breaking the base class signature (the type checker's first 15 findings).
+
+### Not done (as of 0.5.0)
+
+- Outcome events (D12) as a Postgres table with typed columns, plus the OTel span
+  event; output validators (D5); a read API for the audit table.
 
 ## 0.4.0 — 2026-11-15
 
@@ -119,4 +149,4 @@ now refuse to**, which is why this is a minor bump rather than a patch.
 
 ### Not done
 
-- Output validators (D5) and a read API for the audit table.
+- The Postgres audit table (D11), output validators (D5) and a type checker.

@@ -10,7 +10,7 @@ decisions, and the build history is at the end.
 **Not implemented:** D24, and Mem-2/Mem-3 of D22, are proposals. D23 (Mem-1) is
 built.
 
-**Partly implemented (status as of 2026-11-14).** The decision text below is
+**Partly implemented (status as of 2026-11-16).** The decision text below is
 left as decided; these parts of it are not in the code yet:
 
 - **D5:** output-side validators. Only the input guardrails exist.
@@ -30,9 +30,10 @@ left as decided; these parts of it are not in the code yet:
 - **D12:** outcome events are a structured log line plus a one-line memory
   entry. The Postgres row and the OTel span event are not built, and the
   contract test pins the field set rather than a golden serialization.
-- **D15:** only conversation replies are delivered through the outbound
-  activity. Reminder and scheduled-message deliveries (and their key
-  shapes) are not built; reminders are escalation records.
+- **D15:** conversation replies and approver notices (escalations, approval
+  requests, reminders; see the amendment under D15) use the outbound
+  delivery path. Scheduled or proactive task messages are not built, and the
+  notice keys differ slightly from the shapes D15 names.
 - **D17:** pack-bundled suites are declared but not read by the runner. Lana's
   suite runs in CI nightly and on PRs that can change behaviour
   (`.github/workflows/evals.yml`, 3 runs per case, 2 of 3 must pass); it is
@@ -53,9 +54,10 @@ Prototype: an earlier customer-service agent built on the openai-agents SDK. V1
 must be able to express its billing/support/supervisor behavior as a manifest +
 packs, proven by a ported eval suite.
 
-Stack: Python 3.13, uv, FastAPI, **pydantic-ai** (runtime), **temporalio**
-(durability), Postgres + pgvector (memory substrate), OpenTelemetry/Phoenix
-(tracing), ruff, pytest + coverage gate, import-linter.
+Stack: Python 3.13+ (CI tests 3.13 and 3.15; the image runs 3.15), uv, FastAPI,
+**pydantic-ai** (runtime), **temporalio** (durability), Postgres + pgvector
+(memory substrate and audit table), OpenTelemetry/Phoenix (tracing), ruff,
+pyright, pytest + coverage gate, import-linter.
 
 ---
 
@@ -190,6 +192,15 @@ bounds and written to the audit log (D11).
 **Rejected: vendor validators only.** Input-side checks would live inside the
 adapter, become unswappable, and lose independent retry policy.
 
+**Amended 2026-11-15 — unreadable verdicts fail closed.** The LLM guardrails
+(`prompt_injection`, `off_topic`) used to treat any reply without the word FLAG as
+a pass, so an empty or refused verdict let the message through. A verdict must now
+contain exactly one of `FLAG` / `PASS`; anything else trips the guardrail with a
+stated reason. The judged message is handed to the model as quoted data
+(`<message>` tags, tag-like text defanged) with the verdict instruction restated
+after it: passed bare, an imperative message ("write me a poem") was obeyed by
+the guardrail model instead of classified.
+
 ### D6 — Two workflow types, one activity substrate
 
 **Decision.** `ConversationWorkflow` (long-lived; update-driven; idle timeout;
@@ -218,6 +229,15 @@ memory substrate via write-back (D8), which is the long-term record.
 **Rejected: external session store (the prototype used Redis).** Extra
 infrastructure, a second source of truth, and the exact class of read/write
 races the workflow's serialized turns eliminate.
+
+**Amended 2026-11-15 — the compaction trigger.** The workflow compacts once
+history holds a quarter more than `history_budget.max_turns` turns (tracked as
+`ConversationState.history_turns`, behind `workflow.patched("compaction-by-history-turns")`),
+back down to `max_turns`; the old "every `max_turns`-th turn" let history reach
+about twice the budget. The adapter counts a routed turn once (routing repeats
+the user's message per hop), keeps a single running-total marker
+(`[N earlier turns compacted]`) and shows it to the agent so it knows earlier
+turns are not visible.
 
 ### D7 — Role manifest schema v1: versioned, fail-closed, naming-stable
 
@@ -259,6 +279,21 @@ manifest-configurable). pydantic-ai's `approval_required` toolset is the
 adapter-level mechanism for approval-gated tools; the chassis state machine is
 the same regardless of what triggered the wait. "Ask a human and wait two days"
 is thereby a normal, durable thing.
+
+**Amended 2026-11-15 — approvers are told.** Escalations, approval pauses and
+every reminder used to reach only a log line and a memory entry, so the
+"a human teammate will follow up" acknowledgement was a promise nothing kept.
+A `notify_approvers` activity now pushes a notice (why, who with, which
+conversation or task, the pending calls, how to decide) to
+`escalation.approvers_channel`. It is scheduled by the workflow behind
+`workflow.patched("notify-approvers")` with bounded retries, so a dead webhook
+costs the notice, not the conversation. It goes to a **separate**
+`SLACK_APPROVERS_WEBHOOK_URL` whose sender never derives a channel from a
+conversation id, so internal reasons cannot land where a customer reads. With an
+`http` approvers channel (pull-based) or no webhook, the worker warns at start
+that nobody will be told. A task paused before the patch deployed stays silent
+for its whole life (verified live). Decisions still arrive only on
+`/v1/approvals` (D21).
 
 ### D11 — One audit log for manifest overrides and approval decisions
 
@@ -354,6 +389,15 @@ unaffected (replies return via the update result, no outbound activity).
 
 **Rejected: `conversation_id + turn_number` alone.** Collides with
 non-turn deliveries (reminders, scheduled messages) that have no turn number.
+
+**Amended 2026-11-15 — approver notices.** Approver notices use the same
+at-least-once, key-suppressed path, with keys built from deterministic workflow
+values: `{conversation}:escalation:{turn}`, `{task}:approval:{n}`,
+`{task}:reminder:{n}:{k}`. The reminder shape differs slightly from the
+`…:reminder:{escalation_id}:{k}` named above. A key is remembered by a sender only
+once the send succeeded, so a failed send's retry is not suppressed as a
+duplicate, and delivery retries are bounded (4 attempts) so a dead target cannot
+hold a conversation's later turns behind it.
 
 ### D16 — Tenancy: single-tenant per deployment
 
@@ -603,6 +647,13 @@ forgeable-by-confusion). **Rejected: building OIDC now** (no ingress exists
 to terminate it; the token map is the smallest thing that makes the audit
 log honest).
 
+**Amended 2026-11-15 — the sender is the principal.** `POST /v1/messages` used
+to take the envelope's `sender` from the request body even for an authenticated
+caller. With `HTTP_BEARER_TOKENS` configured it is now the token's principal and
+the body field is ignored (it only names the sender in the anonymous local-dev
+posture). An unknown task or workflow id on `/v1/tasks/{id}` and `/v1/approvals`
+is a 404, not a 500.
+
 ### D22 — Memory substrate evolution: interface + provenance first (2026-07-12)
 
 **Status.** Mem-1 is implemented (see D23). Mem-2 and Mem-3 are proposed and
@@ -845,7 +896,7 @@ routing:
     - [billing, supervisor]
     - [support, supervisor]
   max_hops_per_message: 3
-channels: [http]              # subset of registered adapters
+channels: [http]              # http | slack only; slack also mounts the webhook route
 guardrails:
   - pack: message_length
     config: {max_chars: 1000}       # must satisfy the pack's declared bounds
@@ -854,10 +905,10 @@ guardrails:
   - pack: off_topic
     config: {threshold: 0.7}
 memory:
-  substrate: pgvector
+  substrate: pgvector         # pgvector | none
   collection: lana            # namespace within the substrate
 escalation:
-  approvers_channel: http      # where escalation requests surface in V1
+  approvers_channel: http      # http = pull-based (logged only); slack = pushed to SLACK_APPROVERS_WEBHOOK_URL
   remind_after: PT4H
   expire_after: P2D
   approval_required_tools: []  # toolset/tool ids gated on human approval

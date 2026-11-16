@@ -18,9 +18,17 @@ actually runs.
   `Route`/`Escalate` passes through; a `DeferredToolRequests` (a paused,
   approval-gated call) → `NeedsApproval`. It also serializes the vendor message
   history into `ConversationHistory.entries` and normalizes what happened into
-  `TurnEvent`s (model calls, tool calls, tool outputs).
+  `TurnEvent`s (model calls, tool calls, tool outputs). If a model returns the
+  same reply as two identical text parts, the duplicate is collapsed (a
+  customer would otherwise read the sentence twice). The agent's instructions
+  also carry the routing note and, after a compaction, a line telling it earlier
+  turns are no longer visible.
 - **`compact_history(...)`** — the V1 windowing policy: keep the last
-  `max_turns` user turns, fold the rest into a text summary marker.
+  `max_turns` user turns (a routed turn, which repeats the user's message per
+  hop, counts once), fold the rest into one running-total marker
+  (`[N earlier turns compacted]`). The chassis triggers it once history holds
+  1.25x `max_turns`. `summary_max_tokens` is accepted but unused until
+  model-written summaries exist.
 
 ## Why activity names are load-bearing
 

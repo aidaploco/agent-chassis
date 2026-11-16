@@ -27,11 +27,30 @@ prove a very different role shape needs zero chassis changes.
 ## Run it
 
 ```sh
+# in .env:  HTTP_BEARER_TOKENS=tok-a:aida   (token:principal)
 ROLE_DIR=./examples/nova docker compose up --build
-# kick off the task, then poll / approve:
+
+# kick off the task, poll it until it is waiting_on_human, then approve:
 curl -s localhost:8001/v1/tasks -H 'content-type: application/json' \
-  -H 'authorization: Bearer <token>' -d '{"task":"daily_ops_report"}'
+  -H 'authorization: Bearer tok-a' -d '{"task":"daily_ops_report"}'
+curl -s localhost:8001/v1/tasks/<workflow_id> -H 'authorization: Bearer tok-a'
+curl -s localhost:8001/v1/approvals -H 'content-type: application/json' \
+  -H 'authorization: Bearer tok-a' -d '{"workflow_id":"<workflow_id>","approved":true,"comment":"ok"}'
 ```
 
 `/v1/tasks` and `/v1/approvals` require `HTTP_BEARER_TOKENS` to be configured
-(D21) — an approval must be attributable to a real principal.
+(D21) — an approval must be attributable to a real principal, and the principal
+(here `aida`) is what lands in the audit table.
+
+**Who is told, and what is recorded.** Nova's manifest uses
+`approvers_channel: http`, which is pull-based: the pause is visible at
+`GET /v1/tasks/{id}` and logged, and the worker warns at start that no one is
+pushed to. To have approval requests and reminders pushed, list `slack` under
+`channels`, set `approvers_channel: slack` and `SLACK_APPROVERS_WEBHOOK_URL`.
+With the compose stack's Postgres, every decision is also written to the
+append-only `chassis_audit` table before the task acts on it:
+
+```sh
+docker compose exec postgres psql -U chassis -d chassis \
+  -c "select actor, action, detail->>'tool', detail->>'comment' from chassis_audit where kind='approval'"
+```
