@@ -28,6 +28,7 @@ adapters/      the runtime seam's ONE vendor implementation (pydantic-ai)
 durable/       the Temporal workflow shell that orchestrates a turn
 channels/      normalize HTTP/Slack ⇄ MessageEnvelope
 memory/        retrieval + write-back substrate
+audit/         append-only audit table (approvals, escalations, overrides)
 evals/         the behavioral regression contract
 utils/         vendor-agnostic LLM calls + logging
 ```

@@ -733,6 +733,7 @@ class TaskWorkflow:
                             ),
                             payload={"pending_call_ids": sorted(undecided)},
                             occurred_at=workflow.now().astimezone(UTC),
+                            kind="reminder",
                         ),
                         start_to_close_timeout=_EMIT_ACTIVITY_TIMEOUT,
                     )

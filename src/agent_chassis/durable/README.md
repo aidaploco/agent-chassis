@@ -28,7 +28,9 @@ Before every continue-as-new the workflow drains the queue **and** waits for
 `all_handlers_finished`, then carries `ConversationState` in the CAN args
 (D3/D6a). `TaskWorkflow` adds the `WAITING_ON_HUMAN` approval state machine:
 pause on a gated tool, wait on the `approve` signal with reminder/expiry timers,
-audit-log every decision *before* acting on it (D10/D11).
+audit-log every decision *before* acting on it (D10/D11): with a database that is
+an append-only row whose failed write raises, so a Postgres outage pauses
+approvals rather than letting one go unrecorded.
 
 ## Supporting files
 

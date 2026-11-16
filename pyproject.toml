@@ -85,6 +85,7 @@ name = "Vendor runtime stays behind the adapter seam (D2)"
 type = "forbidden"
 source_modules = [
     "agent_chassis.api",
+    "agent_chassis.audit",
     "agent_chassis.channels",
     "agent_chassis.config",
     "agent_chassis.contracts",

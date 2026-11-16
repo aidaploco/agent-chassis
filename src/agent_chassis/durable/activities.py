@@ -4,6 +4,7 @@ from collections import deque
 from opentelemetry import trace
 from temporalio import activity
 
+from agent_chassis.audit.base import AuditEvent
 from agent_chassis.channels.base import OutboundDelivery
 from agent_chassis.contracts import (
     ContentPart,
@@ -150,6 +151,26 @@ class ChassisActivities:
     async def record_escalation(self, record: EscalationRecord) -> None:
         self.escalation_records.append(record)
         _logger.info("escalation %s", json.dumps(record.model_dump(mode="json")))
+        # Best-effort: an escalation is already acknowledged to the user and
+        # pushed to the approvers, so an audit store outage must not fail the
+        # turn. (Approvals are different: see record_approval.)
+        await self._audit_best_effort(
+            AuditEvent(
+                kind="escalation",
+                employee=self._employee(),
+                tenant=record.tenant,
+                subject=record.conversation_id,
+                actor=self._employee(),
+                action="reminded" if record.kind == "reminder" else "escalated",
+                detail={
+                    "agent": record.agent,
+                    "reason": record.reason,
+                    "payload": record.payload,
+                },
+                dedupe_key=f"{record.conversation_id}:{record.occurred_at.isoformat()}",
+                occurred_at=record.occurred_at,
+            )
+        )
         await self._write_back(
             "event",
             f"Escalated conversation {record.conversation_id}: {record.reason}",
@@ -159,7 +180,37 @@ class ChassisActivities:
     @activity.defn
     async def record_approval(self, record: ApprovalRecord) -> None:
         """D11: approval decisions share the audit stream with manifest
-        overrides — same log family, same store."""
+        overrides — same log family, same store.
+
+        Fail-closed: with an audit store configured, the entry must land before
+        the workflow acts on the decision, so a failed write raises and Temporal
+        retries until it succeeds. A database outage pauses approvals; it never
+        lets one go unrecorded."""
+        if self._runtime.audit is not None:
+            await self._runtime.audit.record(
+                AuditEvent(
+                    kind="approval",
+                    employee=self._employee(),
+                    tenant=record.tenant,
+                    subject=record.workflow_id,
+                    actor=record.approver,
+                    action=(
+                        "approved"
+                        if record.approved
+                        else "expired"
+                        if record.approver == "system"
+                        else "denied"
+                    ),
+                    detail={
+                        "task": record.task,
+                        "call_id": record.call_id,
+                        "tool": record.tool,
+                        "comment": record.comment,
+                    },
+                    dedupe_key=f"{record.workflow_id}:{record.call_id}",
+                    occurred_at=record.decided_at,
+                )
+            )
         self.approval_records.append(record)
         _logger.info("approval %s", json.dumps(record.model_dump(mode="json")))
         await self._write_back(
@@ -169,6 +220,23 @@ class ChassisActivities:
             + (f": {record.comment}" if record.comment else ""),
             {"workflow_id": record.workflow_id, "task": record.task},
         )
+
+    def _employee(self) -> str:
+        """The employee's manifest name (tests may bind a runtime without a
+        resolved role)."""
+        if self._runtime.resolved is None:
+            return DEFAULT_AUTHOR
+        return self._runtime.resolved.manifest.employee.name
+
+    async def _audit_best_effort(self, event: AuditEvent) -> None:
+        if self._runtime.audit is None:
+            return
+        try:
+            await self._runtime.audit.record(event)
+        except Exception:
+            _logger.exception(
+                "audit write failed kind=%s subject=%s", event.kind, event.subject
+            )
 
     async def _write_back(
         self, kind: str, content: str, metadata: dict[str, str]

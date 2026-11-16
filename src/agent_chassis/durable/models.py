@@ -96,6 +96,9 @@ class EscalationRecord(BaseModel):
     reason: str
     payload: dict[str, Any] = Field(default_factory=dict)
     occurred_at: datetime
+    # An approval reminder travels the same activity; the audit stream labels
+    # it differently from the escalation it follows up.
+    kind: Literal["escalation", "reminder"] = "escalation"
 
 
 class ApproverNotice(BaseModel):
