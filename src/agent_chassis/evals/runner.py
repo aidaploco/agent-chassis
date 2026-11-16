@@ -173,19 +173,19 @@ async def run_suite(
     results = await asyncio.gather(
         *(run(case) for case in cases for _ in range(repeat))
     )
-    by_case = {
-        case.id: results[i * repeat : (i + 1) * repeat] for i, case in enumerate(cases)
-    }
-
     meeting = 0
-    for case_id, runs in by_case.items():
+    for i, case in enumerate(cases):
+        runs = results[i * repeat : (i + 1) * repeat]
+        required = (
+            case.min_pass_rate if case.min_pass_rate is not None else min_pass_rate
+        )
         passed = sum(r.passed for r in runs)
-        ok = passed / repeat + 1e-9 >= min_pass_rate
+        ok = passed / repeat + 1e-9 >= required
         meeting += ok
         suffix = f" ({passed}/{repeat})" if repeat > 1 else ""
-        print(f"{'PASS' if ok else 'FAIL'} {case_id}{suffix}")
+        print(f"{'PASS' if ok else 'FAIL'} {case.id}{suffix}")
         if repeat > 1 and not ok:
-            print(f"     needs {min_pass_rate:.0%} of runs, got {passed / repeat:.0%}")
+            print(f"     needs {required:.0%} of runs, got {passed / repeat:.0%}")
         for run_result in runs:
             if run_result.passed:
                 continue

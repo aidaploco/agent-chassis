@@ -196,10 +196,26 @@ adapter, become unswappable, and lose independent retry policy.
 (`prompt_injection`, `off_topic`) used to treat any reply without the word FLAG as
 a pass, so an empty or refused verdict let the message through. A verdict must now
 contain exactly one of `FLAG` / `PASS`; anything else trips the guardrail with a
-stated reason. The judged message is handed to the model as quoted data
-(`<message>` tags, tag-like text defanged) with the verdict instruction restated
-after it: passed bare, an imperative message ("write me a poem") was obeyed by
-the guardrail model instead of classified.
+stated reason.
+
+**Amended 2026-11-16 — the verdict is JSON, and the message is sent bare.** Passed
+as plain text, an imperative message ("write me a poem about the moon") was
+obeyed by the guardrail model instead of classified, so the verdict came back
+unreadable. A first fix wrapped the message in `<message>` tags as "data to
+judge". It cured the poem but was a regression: wrapped, the model judged messages
+too literally and the `off_topic` guardrail **refused ordinary greetings**
+(measured: 42 of 120 refused; "Hey, quick question" 20 of 20; 0 of 120 before the
+change). It shipped in 0.4.0 and 0.5.0 and went unnoticed because the eval case
+for greetings only checked that the supervisor replied, and a refusal is a reply.
+The verdict is now requested as a JSON object in the provider's JSON mode
+(`{"verdict": "FLAG"}` or `{"verdict": "PASS"}`) with the message sent unwrapped: a
+model in JSON mode cannot answer the message with a poem. A reply that is JSON but
+has no valid verdict is unreadable (fail closed); only a non-JSON reply (a
+provider with no JSON mode) falls back to exactly one of the words. The
+`off_topic` policy also states that a conversation opener with no request in it
+passes. Measured on a labeled set (20 runs per message): 0 of 400 false positives
+on off-topic and 0 of 200 on injection, with every off-topic request and every
+injection caught. Evals now guard greetings (see D17).
 
 ### D6 — Two workflow types, one activity substrate
 

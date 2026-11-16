@@ -227,3 +227,36 @@ async def test_the_nightly_workflow_tolerates_one_miss_in_three(
         _suite_cases(tmp_path), "http://x", None, repeat=repeat, min_pass_rate=rate
     )
     assert code == 0, capsys.readouterr().out
+
+
+async def test_a_case_can_demand_a_stricter_pass_rate_than_the_suite(
+    tmp_path, monkeypatch, capsys
+):
+    """The suite tolerates one miss in three, which hides a guardrail that
+    wrongly refuses a greeting 1 time in 6. A case guarding against exactly that
+    carries its own min_pass_rate."""
+    (tmp_path / "cases.yaml").write_text(
+        "- id: greeting\n  min_pass_rate: 1.0\n  messages: [{role: user, content: a}]\n"
+        "- id: ordinary\n  messages: [{role: user, content: b}]\n"
+    )
+    _scripted(
+        monkeypatch, {"greeting": [True, False, True], "ordinary": [True, False, True]}
+    )
+
+    code = await runner.run_suite(
+        tmp_path, "http://x", None, repeat=3, min_pass_rate=0.66
+    )
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "FAIL greeting (2/3)" in out and "needs 100% of runs, got 67%" in out
+    assert "PASS ordinary (2/3)" in out  # the suite's default still applies
+
+
+def test_min_pass_rate_must_be_a_real_fraction(tmp_path):
+    for bad in ("0", "1.5", "-0.1"):
+        (tmp_path / "cases.yaml").write_text(
+            f"- id: x\n  min_pass_rate: {bad}\n  messages: [{{role: user, content: a}}]\n"
+        )
+        with pytest.raises(EvalCaseError, match="min_pass_rate"):
+            load_cases(tmp_path)

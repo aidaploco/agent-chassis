@@ -35,6 +35,10 @@ class EvalCase(BaseModel):
         default_factory=dict
     )
     quality_prompt: str | None = None
+    # A stricter (or looser) pass rate for this case than the suite's. The suite
+    # tolerates one miss in three, which hides a guardrail that wrongly refuses
+    # 1 in 6 messages; a case guarding against exactly that sets 1.0.
+    min_pass_rate: float | None = Field(default=None, gt=0, le=1)
 
     @property
     def last_user_message(self) -> str:
