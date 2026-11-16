@@ -1,16 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — 2026-11-16
 
-Adds output guardrails (D5). No upgrade steps; a role gets them by listing them
-in its manifest `guardrails`.
+Adds output guardrails (D5) and fixes a slow first request after a worker start. No
+upgrade steps; a role gets output guardrails by listing them in its manifest
+`guardrails`.
 
 - **Output guardrails (D5).** A new pack kind, `OutputGuardrailPack`, checks a
   final reply before it is returned (conversations and tasks). A tripped reply is
   replaced by a fixed fallback, the exchange is dropped from the model's history
   and the guardrail transcript, and the trip counts in the outcome's
-  `guardrail_trips` (a task's reply carries `guardrail_tripped`). Logs and spans
-  carry the reason, never the reply. Three deterministic builtins: `reply_length`,
+  `guardrail_trips` (a task's reply carries `guardrail_tripped`). The guardrail's own
+  log and span carry the reason, never the reply. Three deterministic builtins: `reply_length`,
   `secret_leak`, `prompt_leak`. Lana enables all three; no false trip in two live
   passes of its 17-case eval suite (3 runs per case), and its greeting and
   knowledge cases now assert the three pass. If a tool ran during the turn, a
@@ -18,6 +19,12 @@ in its manifest `guardrails`.
 - Output checks run as a new `run_output_guardrail` activity behind the
   `output-guardrails` workflow patch (PATCHES.md): runs in flight at deploy skip
   them until they finish. Roles with no output guardrail are unaffected.
+- **Fixed: the first requests after a worker start timed out.** pydantic-ai imports a
+  large price table (`genai_prices.data`) the first time a workflow task runs a model
+  request, and in a container that cold import exceeded Temporal's 2-second
+  workflow-task limit (`TMPRL1101` deadlock errors; 7 on a fresh stack, and
+  `ReadTimeout`s in the first eval run). The adapter now imports it when it loads:
+  0 deadlock errors and four concurrent cold requests all answered.
 - Input guardrail trips and output guardrail trips share one manifest list and one
   name space; `ResolvedRole` gains `input_guardrails` / `output_guardrails`.
 

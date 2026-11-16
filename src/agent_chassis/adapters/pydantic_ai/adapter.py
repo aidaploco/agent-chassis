@@ -48,6 +48,17 @@ from agent_chassis.contracts.runtime import RuntimeHandle
 from agent_chassis.packs.composition import compose_instructions
 from agent_chassis.packs.registry import ResolvedRole
 
+# pydantic-ai imports genai_prices.data (a ~16,000-line price table) lazily, the
+# first time a workflow task runs a model request. Temporal gives a workflow task
+# 2 seconds to yield; imported cold inside the sandbox in a container, that import
+# alone exceeded it, so the first requests after every worker start logged
+# TMPRL1101 deadlock errors and timed out. Importing it here puts it in
+# sys.modules before any workflow task runs.
+try:
+    import genai_prices.data  # noqa: F401
+except ImportError:  # a transitive dependency: nothing to warm if pydantic-ai drops it
+    pass
+
 RUNTIME_ID = "pydantic_ai"
 
 

@@ -468,3 +468,18 @@ async def test_different_text_parts_are_still_joined():
     adapter, handle = _adapter(fn)
     result = await adapter.run_turn(handle, _request("supervisor", "hi"))
     assert result.directive == Reply(content="First part. Second part.")
+
+
+def test_price_table_is_imported_before_any_workflow_task_runs():
+    """pydantic-ai imports genai_prices.data lazily; cold inside the Temporal
+    sandbox that import exceeded the 2s workflow-task limit (TMPRL1101) on the
+    first requests after a worker start. The adapter module warms it."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        "import agent_chassis.adapters.pydantic_ai.adapter\n"
+        "assert 'genai_prices.data' in sys.modules\n"
+    )
+    subprocess.run([sys.executable, "-I", "-c", code], check=True)
