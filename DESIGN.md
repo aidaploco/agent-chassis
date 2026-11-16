@@ -34,10 +34,12 @@ left as decided; these parts of it are not in the code yet:
   activity. Reminder and scheduled-message deliveries (and their key
   shapes) are not built; reminders are escalation records.
 - **D17:** pack-bundled suites are declared but not read by the runner. Lana's
-  suite runs nightly in CI (`.github/workflows/evals.yml`, 3 runs per case, 2
-  of 3 must pass); it is not part of the per-PR gate.
-- **Quality gates:** the eval suite is a nightly advisory job, not a per-PR
-  gate. (pyright, standard mode, runs in CI.)
+  suite runs in CI nightly and on PRs that can change behaviour
+  (`.github/workflows/evals.yml`, 3 runs per case, 2 of 3 must pass); it is
+  advisory and does not block merging.
+- **Quality gates:** the eval suite is an advisory job (nightly and on
+  behaviour-changing PRs), not a merge gate. (pyright, standard mode, runs in
+  CI.)
 
 ## What this is
 

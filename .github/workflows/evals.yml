@@ -2,8 +2,8 @@ name: Evals
 
 # The behaviour suite needs a running Employee and makes real (paid) model
 # calls, so it is not part of the per-PR CI gate (ci.yml / ci-success). It runs
-# nightly against Lana on the real compose stack, and when the eval runner or
-# this workflow changes. Failing here means "look at it", not "the PR is bad":
+# nightly against Lana on the real compose stack, and on PRs that can change
+# behaviour (the Lana role, prompt and guardrail code, the adapter, the runner). Failing here means "look at it", not "the PR is bad":
 # model behaviour is probabilistic, which is why each case runs several times
 # and must pass in most of them (EVAL_REPEAT / EVAL_MIN_PASS_RATE below).
 
@@ -16,9 +16,16 @@ on:
         description: Runs per case
         default: "3"
   pull_request:
+    # What can change how an Employee behaves: the example role (manifest and
+    # packs, i.e. prompts and routing), the chassis code that builds prompts and
+    # runs guardrails and agents, and the eval machinery itself.
     paths:
       - .github/workflows/evals.yml
       - src/agent_chassis/evals/**
+      - src/agent_chassis/packs/**
+      - src/agent_chassis/adapters/**
+      - src/agent_chassis/utils/llm.py
+      - examples/lana/**
 
 permissions:
   contents: read

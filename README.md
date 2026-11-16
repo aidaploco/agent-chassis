@@ -204,7 +204,7 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 | **D14** | Workflow changes ship behind `workflow.patched()`; ledger in `PATCHES.md`. |
 | **D15** | Outbound delivery is at-least-once and idempotent per structured delivery key. **Not built: reminder and task deliveries (only conversation replies are pushed).** |
 | **D16** | One tenant per deployment; isolation is the deployment environment's job. |
-| **D17** | Evals are chassis machinery: versioned case schema, full-conversation binary judge. Lana's suite runs nightly in CI (advisory, not a per-PR gate). **Not built: pack-bundled suites.** |
+| **D17** | Evals are chassis machinery: versioned case schema, full-conversation binary judge. Lana's suite runs in CI nightly and on behaviour-changing PRs (advisory, not a merge gate). **Not built: pack-bundled suites.** |
 | **D18** | Two units (HTTP and worker) off one image. |
 | **D19** | Traces: one readable tree per turn, guardrails as first-class spans. |
 | **D20** | Role artifacts split by trust tier: curated packs baked into the image, tenant packs mounted. |

@@ -48,8 +48,9 @@ role's suite (zero special-casing is enforced by a test).
 
 **CI.** [`.github/workflows/evals.yml`](../../../.github/workflows/evals.yml)
 runs Lana's suite nightly on the real compose stack (3 runs per case, each must
-pass in at least 2 of 3), on demand (`workflow_dispatch`), and when the runner
-or the workflow changes. It needs the `OPENAI_API_KEY` repository secret. It is
+pass in at least 2 of 3), on demand (`workflow_dispatch`), and on PRs that can
+change behaviour (the Lana role, the prompt and guardrail code, the adapter, the
+runner). It is advisory: it does not block merging. It needs the `OPENAI_API_KEY` repository secret. It is
 deliberately **not** part of the per-PR `ci-success` gate: it makes paid model
 calls and the result is probabilistic.
 
