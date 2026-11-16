@@ -1,18 +1,14 @@
 import json
 import uuid
 from datetime import UTC
-from typing import LiteralString
 
 from psycopg import sql
-from psycopg_pool import AsyncConnectionPool
 
 from agent_chassis.audit.base import AuditEvent
+from agent_chassis.pgstore import ddl_lock, install_append_only, make_pool
 from agent_chassis.utils.logger import get_logger
 
 _logger = get_logger(__name__)
-
-# Serialises start() across worker replicas so concurrent DDL cannot race.
-_DDL_LOCK_KEY = 7_203_411_901
 
 
 class PgAuditSink:
@@ -29,17 +25,12 @@ class PgAuditSink:
         self._table = table
         # Composed, never interpolated: names are quoted as identifiers.
         self._t = sql.Identifier(table)
-        self._pool = AsyncConnectionPool(dsn, open=False, kwargs={"autocommit": True})
+        self._pool = make_pool(dsn)
 
     async def start(self) -> None:
         await self._pool.open()
-        function = sql.Identifier(f"{self._table}_append_only")
         async with self._pool.connection() as conn, conn.transaction():
-            await conn.execute(
-                sql.SQL("SELECT pg_advisory_xact_lock({})").format(
-                    sql.Literal(_DDL_LOCK_KEY)
-                )
-            )
+            await ddl_lock(conn, f"audit:{self._table}")
             await conn.execute(
                 sql.SQL(
                     """
@@ -82,42 +73,7 @@ class PgAuditSink:
                     index=sql.Identifier(f"{self._table}_subject_idx"), table=self._t
                 )
             )
-            await conn.execute(
-                sql.SQL(
-                    """
-                    CREATE OR REPLACE FUNCTION {function}() RETURNS trigger
-                    LANGUAGE plpgsql AS $$
-                    BEGIN
-                        RAISE EXCEPTION 'the audit table is append-only: % is not allowed',
-                            TG_OP;
-                    END
-                    $$
-                    """
-                ).format(function=function)
-            )
-            triggers: tuple[tuple[LiteralString, LiteralString, LiteralString], ...] = (
-                ("rows", "UPDATE OR DELETE", "ROW"),
-                ("truncate", "TRUNCATE", "STATEMENT"),
-            )
-            for suffix, event, scope in triggers:
-                trigger = sql.Identifier(f"{self._table}_no_{suffix}")
-                await conn.execute(
-                    sql.SQL("DROP TRIGGER IF EXISTS {trigger} ON {table}").format(
-                        trigger=trigger, table=self._t
-                    )
-                )
-                await conn.execute(
-                    sql.SQL(
-                        "CREATE TRIGGER {trigger} BEFORE {event} ON {table}"
-                        " FOR EACH {scope} EXECUTE FUNCTION {function}()"
-                    ).format(
-                        trigger=trigger,
-                        event=sql.SQL(event),
-                        table=self._t,
-                        scope=sql.SQL(scope),
-                        function=function,
-                    )
-                )
+            await install_append_only(conn, self._table)
         _logger.info("audit store ready table=%s", self._table)
 
     async def close(self) -> None:

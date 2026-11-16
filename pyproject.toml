@@ -95,7 +95,9 @@ source_modules = [
     "agent_chassis.manifest",
     "agent_chassis.memory",
     "agent_chassis.observability",
+    "agent_chassis.outcomes",
     "agent_chassis.packs",
+    "agent_chassis.pgstore",
     "agent_chassis.role_loader",
     "agent_chassis.utils",
 ]

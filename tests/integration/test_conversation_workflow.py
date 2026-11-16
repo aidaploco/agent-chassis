@@ -195,6 +195,8 @@ def _build_runtime(
     push_sender=None,
     approvers_sender=None,
     audit=None,
+    outcomes=None,
+    outcome_retry=None,
 ) -> RoleRuntime:
     registry = PackRegistry()
     registry.register(BillingPack())
@@ -222,6 +224,8 @@ def _build_runtime(
         push_senders={"slack": push_sender or FakeOutboundSender()},
         approvers_sender=approvers_sender,
         audit=audit,
+        outcomes=outcomes,
+        outcome_retry=outcome_retry,
     )
 
 
@@ -259,12 +263,16 @@ def _chassis_fixture(
     push_sender=None,
     approvers_sender=None,
     audit=None,
+    outcomes=None,
+    outcome_retry=None,
 ):
     async def fixture(env):
         MODEL_CALLS.clear()
         FAKE_DELIVERIES.clear()
         GUARDRAIL_CONTEXTS.clear()
-        runtime = _build_runtime(escalation, push_sender, approvers_sender, audit)
+        runtime = _build_runtime(
+            escalation, push_sender, approvers_sender, audit, outcomes, outcome_retry
+        )
         set_role_runtime(runtime)
         # Agents bind to ONE workflow class (PydanticAIPlugin registers
         # activities per class; both workflows share this worker).

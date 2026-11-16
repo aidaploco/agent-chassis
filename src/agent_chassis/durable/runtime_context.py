@@ -7,10 +7,13 @@ module passes this module through the sandbox for exactly that reason.
 
 from dataclasses import dataclass, field
 
+from temporalio.common import RetryPolicy
+
 from agent_chassis.audit.base import AuditSink
 from agent_chassis.channels.base import OutboundSender
 from agent_chassis.contracts.runtime import RuntimeAdapter, RuntimeHandle
 from agent_chassis.memory.base import MemorySubstrate
+from agent_chassis.outcomes.base import OutcomeSink
 from agent_chassis.packs.registry import ResolvedRole
 
 
@@ -31,6 +34,13 @@ class RoleRuntime:
     # The audit stream (D11). None when no database is configured: approvals and
     # escalations are then only logged, and the worker warned about it at start.
     audit: AuditSink | None = None
+    # The outcome feed (D12). None when no database is configured: outcomes are
+    # then only logged.
+    outcomes: OutcomeSink | None = None
+    # Test hook (like ConversationParams.max_turns_per_run): replaces the retry
+    # policy for the outcome write so a test of the give-up path need not wait
+    # minutes. Production leaves it None.
+    outcome_retry: RetryPolicy | None = None
 
 
 _runtime: RoleRuntime | None = None

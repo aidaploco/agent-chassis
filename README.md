@@ -141,7 +141,7 @@ Settings load from environment variables or `.env` ([`config.py`](src/agent_chas
 | `TEMPORAL_ADDRESS` / `_NAMESPACE` / `_TASK_QUEUE` | `localhost:7233` / `default` / `agent-chassis` | Temporal connection |
 | `MANIFEST_PATH` | required | The role manifest to run |
 | `PACKS_DIR` | unset | Directory of role-supplied capability packs |
-| `POSTGRES_URL` | unset | Memory substrate (a manifest with `substrate: none` runs without it) **and** the audit table. Unset = the audit stream is only logged, and the worker warns |
+| `POSTGRES_URL` | unset | Memory substrate (a manifest with `substrate: none` runs without it) **and** the audit and outcome tables. Unset = both are only logged, and the worker warns |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `text-embedding-3-small` / `1536` | OpenAI embedding model and dimension for the memory substrate. The dimension is baked into the table, so changing it needs a new table |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | unset | Full OTLP/HTTP traces URL (Phoenix, Logfire, …). Tracing is disabled when unset. `PHOENIX_COLLECTOR_ENDPOINT` is a legacy alias |
 | `OTEL_EXPORTER_OTLP_HEADERS` | unset | `k=v,k2=v2` auth headers for the backend (e.g. a Logfire write token) |
@@ -174,6 +174,7 @@ src/agent_chassis/
   channels/     HTTP and Slack-shaped adapters
   memory/       retrieval and write-back substrate (Postgres + pgvector)
   audit/        append-only audit table: approvals, escalations, manifest overrides (D11)
+  outcomes/     append-only outcome table: one row per finished conversation or task (D12)
   evals/        case schema, runner, graders, LLM judge
   utils/        provider-agnostic LLM helper and logging
   config.py, role_loader.py, api.py, worker.py, introspection.py, observability.py
@@ -205,7 +206,7 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 | **D8** | Memory is retrieval plus write-back behind one interface (pgvector today). |
 | **D9** | Payload encryption fails closed: no codec key, no worker. |
 | **D10 / D11** | Human escalation is a first-class workflow state; one append-only audit log for overrides and approvals. Escalations, approval pauses and reminders are pushed to a Slack approvers webhook when configured. Approvals, escalations and manifest overrides are recorded in an append-only Postgres audit table (`chassis_audit`); approvals fail closed. **Not built: a read API for it, and a wait state for conversations (only tasks wait).** |
-| **D12** | Each completed conversation or task emits one versioned `OutcomeEvent`, as a log line and a memory entry. **Not built: the Postgres row and the OTel span event.** |
+| **D12** | Each completed conversation or task emits one versioned `OutcomeEvent`: a log line, a row in an append-only `chassis_outcomes` table with typed columns (best-effort, bounded retries), a span, and a memory entry. **Not built: a read API.** |
 | **D13** | Inbound turns are serialized through an in-workflow FIFO queue. |
 | **D14** | Workflow changes ship behind `workflow.patched()`; ledger in `PATCHES.md`. |
 | **D15** | Outbound delivery is at-least-once and idempotent per structured delivery key. Conversation replies and approver notices (escalations, approval requests, reminders) use it. **Not built: scheduled or proactive task messages.** |

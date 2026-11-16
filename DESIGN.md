@@ -27,9 +27,9 @@ left as decided; these parts of it are not in the code yet:
 - **D11:** the audit table exists (`chassis_audit`, see the amendment under
   D11). Not built: a read API (`GET /v1/audit`); query the table directly.
   Without `POSTGRES_URL` the stream is logged only and the worker warns.
-- **D12:** outcome events are a structured log line plus a one-line memory
-  entry. The Postgres row and the OTel span event are not built, and the
-  contract test pins the field set rather than a golden serialization.
+- **D12:** built (`chassis_outcomes`, see the amendment under D12), with one
+  deviation from the wording: a dedicated span rather than a span *event*. Not
+  built: a read API; query the table.
 - **D15:** conversation replies and approver notices (escalations, approval
   requests, reminders; see the amendment under D15) use the outbound
   delivery path. Scheduled or proactive task messages are not built, and the
@@ -325,8 +325,8 @@ worker restart cannot write a second row).
   authenticated principal (D21), or `system` for an expiry.
 - **Without a database** the stream is logged only, as before, and the worker
   warns at start that there is no durable record.
-- Outcome events (D12) are not in this table; they will get their own table with
-  typed columns for metrics.
+- Outcome events (D12) are not in this table; they have their own, with typed
+  columns for metrics (see the amendment under D12).
 
 ### D12 — Outcome events are a public contract
 
@@ -336,6 +336,38 @@ contract tests (golden serialization), and is emitted as a Postgres row + OTel
 span event + structured log line. This is the raw feed for
 usage, cost and reliability metrics. Breaking changes require a
 version bump and a migration note in this file.
+
+**Amended 2026-11-16 — built.** One table, `chassis_outcomes`, in the same Postgres
+as memory and the audit table, with a typed column per `OutcomeEvent` field
+(`resolution` and the counts carry `CHECK` constraints; `models_used` is a text
+array) so metrics are plain SQL. `event_version` stays 1: the contract did not
+change. A golden-serialization test now pins the exact JSON, not only the field
+set.
+
+- **Idempotent by run:** unique on `(role, workflow_run_id)`, so an activity retry
+  or a replay cannot add a second row.
+- **Append-only**, by the same database triggers as the audit table (a superuser
+  can still drop them), since these rows feed usage, cost and reliability numbers.
+- **Best-effort with bounded retries.** An outcome is a metric, not an
+  accountability record, so a store outage never holds a workflow open: the write
+  is retried for about three minutes (8 attempts, 2 s doubling to 60 s), then the
+  workflow logs an error and completes. The `outcome_event` log line, written
+  first and once, carries the whole event for a backfill. (Contrast approvals,
+  whose audit write fails closed, D11.) This changes only the activity's retry
+  options, not the commands the workflow issues, so it needs no
+  `workflow.patched` gate.
+- **A dedicated span, not a span event.** D12 says "OTel span event", but an
+  outcome is emitted when a conversation idles out, when no request trace is
+  active, so there is no span to hang an event on. The activity emits a span
+  `outcome <task_type>` with the metrics as attributes and `session.id` = the
+  conversation id.
+- **No read API;** query the table (examples in `outcomes/README.md`). Without
+  `POSTGRES_URL` outcomes are logged only and the worker warns.
+
+The audit and outcome stores share a small module (`pgstore.py`) for the pool
+(`min_size=1`, `max_size=4`, `check_connection`, so a Postgres restart does not
+strand a write on a dead socket), the DDL advisory lock, and the append-only
+triggers.
 
 ### D13 — Inbound turns are serialized through an in-workflow turn queue
 
