@@ -165,7 +165,7 @@ async def send_to_conversation(
 
 def create_app(
     get_client: Callable[[], Awaitable[Client]],
-    resolved: "ResolvedRole | None" = None,
+    resolved: ResolvedRole | None = None,
     get_substrate: Callable[[], Awaitable[MemorySubstrate | None]] | None = None,
 ) -> FastAPI:
     """App factory; the client provider is injected so tests can supply a

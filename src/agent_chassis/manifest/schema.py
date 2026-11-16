@@ -226,7 +226,7 @@ class EscalationSpec(BaseModel):
     approval_required_tools: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _expiry_after_reminder(self) -> "EscalationSpec":
+    def _expiry_after_reminder(self) -> EscalationSpec:
         if self.expire_after <= self.remind_after:
             raise ValueError("expire_after must be greater than remind_after")
         return self
@@ -324,7 +324,7 @@ class RoleManifest(BaseModel):
     schedules: list[ScheduleSpec] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _cross_references(self) -> "RoleManifest":
+    def _cross_references(self) -> RoleManifest:
         capability_ids = [ref.instance_id for ref in self.capabilities]
         duplicates = {c for c in capability_ids if capability_ids.count(c) > 1}
         if duplicates:

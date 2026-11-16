@@ -69,7 +69,7 @@ def temporal_plugins() -> list[Any]:
     return [PydanticAIPlugin()]
 
 
-def bind_workflow_agents(workflow_class: type, handle: "PydanticAIHandle") -> None:
+def bind_workflow_agents(workflow_class: type, handle: PydanticAIHandle) -> None:
     """Attach this handle's agents to a workflow class so PydanticAIPlugin
     auto-registers their activities on the worker."""
     workflow_class.__pydantic_ai_agents__ = list(handle.agents.values())  # type: ignore[attr-defined]

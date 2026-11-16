@@ -33,9 +33,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.13 is the declared floor (requires-python); 3.15 is what the
-        # Docker image runs (Dependabot bumped it), so what ships is tested.
-        python-version: ["3.13", "3.15"]
+        # One version: requires-python and the Docker image are both 3.15, so
+        # the declared floor and what ships are the same interpreter. Kept as
+        # a matrix so a future bump is one entry (test_ci_alignment enforces it).
+        python-version: ["3.15"]
     # main requires only `ci-success`, which aggregates every leg, so legs can
     # be named freely (and a new Python version is one more matrix entry).
     name: test (python ${{ matrix.python-version }})

@@ -53,7 +53,7 @@ Prototype: an earlier customer-service agent built on the openai-agents SDK. V1
 must be able to express its billing/support/supervisor behavior as a manifest +
 packs, proven by a ported eval suite.
 
-Stack: Python 3.13+ (CI tests 3.13 and 3.15; the image runs 3.15), uv, FastAPI,
+Stack: Python 3.15+ (CI and the image both run 3.15), uv, FastAPI,
 **pydantic-ai** (runtime), **temporalio** (durability), Postgres + pgvector
 (memory substrate and audit table), OpenTelemetry/Phoenix (tracing), ruff,
 pyright, pytest + coverage gate, import-linter.
