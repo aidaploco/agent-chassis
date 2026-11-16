@@ -10,8 +10,13 @@ This is how "does this role still behave correctly" becomes a CI gate.
   **multi-turn from day one**: `messages` is the conversation so far and its
   last message (which must be from the user) is the turn under test. A case can
   assert `expected_agent`, `expected_tools` / `forbidden_tools`,
-  `expected_directive` (`reply` / `escalate`), per-guardrail `pass`/`trip` expectations, and a
-  free-text `quality_prompt` for the judge.
+  `expected_directive` (`reply` / `escalate`), per-guardrail `pass`/`trip`
+  expectations, a free-text `quality_prompt` for the judge, and an optional
+  per-case `min_pass_rate` that overrides the suite's. Use it for a case that
+  guards against a *rare* failure: the suite's 2-of-3 tolerance would let a
+  guardrail that wrongly refuses 1 greeting in 6 pass most of the time, so
+  Lana's greeting cases set `1.0` and assert the guardrails `pass` (a refusal is
+  also a "reply", so checking the directive alone cannot see it).
 - [`graders.py`](graders.py) — deterministic structural graders (agent, tools,
   directive, guardrails) over an `EvalExecution` — a normalized summary of what
   happened, never vendor types. Structural failures are conclusive without a
