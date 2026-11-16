@@ -20,6 +20,7 @@ from agent_chassis.adapters.pydantic_ai import (
     bind_workflow_agents,
     temporal_plugins,
 )
+from agent_chassis.audit import PgAuditSink, manifest_digest, record_overrides
 from agent_chassis.channels.base import OutboundSender
 from agent_chassis.channels.slack import SlackOutboundSender
 from agent_chassis.config import ChassisSettings, get_settings
@@ -74,6 +75,22 @@ def build_approvers_sender(
     return None
 
 
+def build_audit_sink(settings: ChassisSettings) -> PgAuditSink | None:
+    """The audit stream's store (D11), or ``None`` without a database.
+
+    ``None`` keeps today's behaviour (approvals, escalations and overrides are
+    logged only) but it means there is no durable, append-only record, so it is
+    said out loud at start rather than found when someone asks who approved what.
+    """
+    if not settings.postgres_url:
+        _logger.warning(
+            "POSTGRES_URL is not set — approvals, escalations and manifest"
+            " overrides are only logged; there is no durable audit record (D11)"
+        )
+        return None
+    return PgAuditSink(settings.postgres_url)
+
+
 def build_runtime(settings: ChassisSettings) -> RoleRuntime:
     resolved = load_role(settings)
     manifest = resolved.manifest
@@ -107,6 +124,7 @@ def build_runtime(settings: ChassisSettings) -> RoleRuntime:
         push_senders=push_senders,
         substrate=substrate,
         approvers_sender=build_approvers_sender(settings, manifest),
+        audit=build_audit_sink(settings),
     )
 
 
@@ -129,6 +147,17 @@ async def run_worker(shutdown: asyncio.Event) -> None:
         # cleanup and the process hangs as a zombie instead of crash-looping.
         if isinstance(runtime.substrate, PgVectorSubstrate):
             await runtime.substrate.start()
+        if isinstance(runtime.audit, PgAuditSink):
+            await runtime.audit.start()
+            # The overrides in force, once per manifest version (D11).
+            assert settings.manifest_path is not None  # load_role required it
+            recorded = await record_overrides(
+                runtime.audit,
+                runtime.resolved,
+                tenant=settings.tenant,
+                manifest_sha256=manifest_digest(settings.manifest_path),
+            )
+            _logger.info("audit: %d manifest override(s) newly recorded", recorded)
         set_role_runtime(runtime)
 
         handle = runtime.handle
@@ -175,6 +204,8 @@ async def run_worker(shutdown: asyncio.Event) -> None:
         # instead of crash-looping with a traceback.
         if isinstance(runtime.substrate, PgVectorSubstrate):
             await runtime.substrate.close()
+        if isinstance(runtime.audit, PgAuditSink):
+            await runtime.audit.close()
 
 
 def main() -> None:  # pragma: no cover - process entrypoint

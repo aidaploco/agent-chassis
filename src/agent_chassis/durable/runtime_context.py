@@ -7,6 +7,7 @@ module passes this module through the sandbox for exactly that reason.
 
 from dataclasses import dataclass, field
 
+from agent_chassis.audit.base import AuditSink
 from agent_chassis.channels.base import OutboundSender
 from agent_chassis.contracts.runtime import RuntimeAdapter, RuntimeHandle
 from agent_chassis.memory.base import MemorySubstrate
@@ -27,6 +28,9 @@ class RoleRuntime:
     # (D10). None when that channel has no push path (e.g. http, which is
     # pull-based): notices are then logged only.
     approvers_sender: OutboundSender | None = None
+    # The audit stream (D11). None when no database is configured: approvals and
+    # escalations are then only logged, and the worker warned about it at start.
+    audit: AuditSink | None = None
 
 
 _runtime: RoleRuntime | None = None

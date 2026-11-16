@@ -36,7 +36,7 @@ flowchart LR
 - **The adapter seam (D2).** The chassis owns all deterministic orchestration (message loop, routing, escalation, timers, continue-as-new) and depends only on the vendor-free types in [`contracts/`](src/agent_chassis/contracts/). Only code under [`adapters/`](src/agent_chassis/adapters/) may import the agent framework (`pydantic_ai`). This is enforced in CI by import-linter, not left to convention.
 - **Routing is the chassis's job (D4).** Agents return a structured directive (`reply`, `route`, `escalate`, `needs_approval`). The chassis walks the manifest's routing graph; an illegal or over-budget route is an error, never a silent fallback.
 - **Durable by construction (D1, D6a).** Conversation history is workflow state carried through continue-as-new, and every model and tool call is its own activity. A worker can be killed mid-conversation or mid-approval and the work resumes.
-- **Human approval is a workflow state (D10, D11).** A gated tool pauses a `TaskWorkflow`, possibly for days, with reminders and an expiry. Decisions are attributed to the authenticated principal and audit-logged before they take effect. A conversation that escalates records it and tells the user; it does not wait. The audit stream is structured log lines plus a memory entry today, not yet the Postgres table D11 describes.
+- **Human approval is a workflow state (D10, D11).** A gated tool pauses a `TaskWorkflow`, possibly for days, with reminders and an expiry. Decisions are attributed to the authenticated principal and audit-logged before they take effect. A conversation that escalates records it and tells the user; it does not wait. With `POSTGRES_URL` set they land in an append-only `chassis_audit` table (enforced by database triggers), and an approval is not acted on until its entry is written.
 - **Fail closed.** The worker refuses to start without a payload-encryption key (D9), manifests reject unknown fields and out-of-bounds guardrail thresholds (D7), and approval endpoints refuse to serve unauthenticated (D21).
 - **Observability (D19).** One readable trace tree per turn, with guardrails as first-class spans, exported over OTLP to [Arize Phoenix](https://github.com/Arize-ai/phoenix) (or any OTLP backend) when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
 
@@ -140,7 +140,7 @@ Settings load from environment variables or `.env` ([`config.py`](src/agent_chas
 | `TEMPORAL_ADDRESS` / `_NAMESPACE` / `_TASK_QUEUE` | `localhost:7233` / `default` / `agent-chassis` | Temporal connection |
 | `MANIFEST_PATH` | required | The role manifest to run |
 | `PACKS_DIR` | unset | Directory of role-supplied capability packs |
-| `POSTGRES_URL` | unset | Memory substrate; a manifest with `substrate: none` runs without it |
+| `POSTGRES_URL` | unset | Memory substrate (a manifest with `substrate: none` runs without it) **and** the audit table. Unset = the audit stream is only logged, and the worker warns |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | unset | Full OTLP/HTTP traces URL (Phoenix, Logfire, …). Tracing is disabled when unset. `PHOENIX_COLLECTOR_ENDPOINT` is a legacy alias |
 | `OTEL_EXPORTER_OTLP_HEADERS` | unset | `k=v,k2=v2` auth headers for the backend (e.g. a Logfire write token) |
 | `HTTP_BEARER_TOKENS` | unset | `token:principal,...`. When set, every `/v1/*` call needs a token (D21), except the Slack webhook, which is verified by its signing secret |
@@ -171,6 +171,7 @@ src/agent_chassis/
   durable/      Temporal workflows, activities, payload codec, schedules
   channels/     HTTP and Slack-shaped adapters
   memory/       retrieval and write-back substrate (Postgres + pgvector)
+  audit/        append-only audit table: approvals, escalations, manifest overrides (D11)
   evals/        case schema, runner, graders, LLM judge
   utils/        provider-agnostic LLM helper and logging
   config.py, role_loader.py, api.py, worker.py, introspection.py, observability.py
@@ -198,7 +199,7 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 | **D7** | Manifest schema v1: versioned, `extra="forbid"`, naming-stable identifiers, fail-closed. |
 | **D8** | Memory is retrieval plus write-back behind one interface (pgvector today). |
 | **D9** | Payload encryption fails closed: no codec key, no worker. |
-| **D10 / D11** | Human escalation is a first-class workflow state; one append-only audit log for overrides and approvals. Escalations, approval pauses and reminders are pushed to a Slack approvers webhook when configured. **Not built: the Postgres audit table (the stream is log lines plus memory entries) and a wait state for conversations (only tasks wait).** |
+| **D10 / D11** | Human escalation is a first-class workflow state; one append-only audit log for overrides and approvals. Escalations, approval pauses and reminders are pushed to a Slack approvers webhook when configured. Approvals, escalations and manifest overrides are recorded in an append-only Postgres audit table (`chassis_audit`); approvals fail closed. **Not built: a read API for it, and a wait state for conversations (only tasks wait).** |
 | **D12** | Each completed conversation or task emits one versioned `OutcomeEvent`, as a log line and a memory entry. **Not built: the Postgres row and the OTel span event.** |
 | **D13** | Inbound turns are serialized through an in-workflow FIFO queue. |
 | **D14** | Workflow changes ship behind `workflow.patched()`; ledger in `PATCHES.md`. |

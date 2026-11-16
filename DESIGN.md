@@ -24,9 +24,9 @@ left as decided; these parts of it are not in the code yet:
   with `http` (pull-based) they are logged only and the worker warns at start.
   Decisions still arrive on `/v1/approvals`. Tasks paused before the
   `notify-approvers` patch deployed stay silent until they finish.
-- **D11:** there is no Postgres audit table. Manifest overrides are logged
-  at worker start; approval decisions are logged and written to the memory
-  substrate as entries, before the workflow acts on them.
+- **D11:** the audit table exists (`chassis_audit`, see the amendment under
+  D11). Not built: a read API (`GET /v1/audit`); query the table directly.
+  Without `POSTGRES_URL` the stream is logged only and the worker warns.
 - **D12:** outcome events are a structured log line plus a one-line memory
   entry. The Postgres row and the OTel span event are not built, and the
   contract test pins the field set rather than a golden serialization.
@@ -268,6 +268,30 @@ actor, timestamp) and (b) every approval decision (workflow id, decision,
 **who / when / comment**). Same schema family, same store (Postgres table),
 same retention policy. Approval signals carry the audit fields; the workflow
 writes the audit entry via activity before acting on the decision.
+
+**Amended 2026-11-16 — built.** One table, `chassis_audit`, in the same Postgres
+as memory (`POSTGRES_URL`); columns: `id`, `recorded_at` (the store's clock),
+`occurred_at` (when it happened), `employee`, `tenant`, `kind`
+(`approval` | `manifest_override` | `escalation`), `subject`, `actor`, `action`
+(`approved` | `denied` | `expired` | `override` | `escalated` | `reminded`),
+`detail` (JSON), and `dedupe_key` (unique per `kind`, so an activity retry or a
+worker restart cannot write a second row).
+
+- **Append-only is enforced by the database:** triggers reject `UPDATE`,
+  `DELETE` and `TRUNCATE`. A Postgres superuser can still drop the triggers;
+  this makes tampering deliberate and visible, not impossible.
+- **Approvals fail closed.** With a store configured, the entry must land before
+  the workflow acts on the decision: a failed write raises and Temporal retries,
+  so a database outage pauses approvals instead of letting one go unrecorded.
+  Escalations and reminders are best-effort (they are already acknowledged and
+  pushed to approvers), as is the memory write-back.
+- **Overrides** are written once per manifest version, deduplicated by the
+  manifest's SHA-256, with `actor = manifest`. An approval's actor is the
+  authenticated principal (D21), or `system` for an expiry.
+- **Without a database** the stream is logged only, as before, and the worker
+  warns at start that there is no durable record.
+- Outcome events (D12) are not in this table; they will get their own table with
+  typed columns for metrics.
 
 ### D12 — Outcome events are a public contract
 

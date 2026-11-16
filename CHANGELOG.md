@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Audit table (D11).** Approval decisions, escalations (and reminders) and the
+  manifest overrides in force are written to an append-only `chassis_audit`
+  table in the same Postgres as memory. The database enforces append-only with
+  triggers (no `UPDATE`, `DELETE` or `TRUNCATE`); writes are idempotent per
+  `(kind, dedupe_key)`, so retries and restarts add nothing. **Approvals fail
+  closed:** the entry must be written before the workflow acts, so a Postgres
+  outage pauses approvals (verified live: a task stalled while the database was
+  down and finished, with one row, once it returned). Escalations are
+  best-effort. Without `POSTGRES_URL` it is logged only and the worker warns.
+  No read API yet: query the table directly.
 - **Lana: plan-pricing questions no longer dead-end in billing.** Questions like
   "what does the Pro plan cost and what's included?" were routed to billing
   (sometimes 29 of 30 runs for one phrasing; 76% correct across a 9-question
@@ -109,4 +119,4 @@ now refuse to**, which is why this is a minor bump rather than a patch.
 
 ### Not done
 
-- The Postgres audit table (D11), output validators (D5) and a type checker.
+- Output validators (D5) and a read API for the audit table.
