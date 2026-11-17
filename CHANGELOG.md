@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 — 2026-11-16
+
+Python 3.15 becomes the only supported version, tools get an idempotency key, and there
+is a dev console. **Upgrade check:** installing the package from source now needs
+Python 3.15 or newer (3.13 and 3.14 are refused); the container image already ran 3.15
+and is unaffected. Nothing else needs changing: `/v1/self` only gains fields, and a tool
+that ignores the new `idempotency_key()` behaves exactly as before.
 
 - **A dev console (`console/`).** A Next.js app to see what the chassis does: switch
   between Employees, chat, and see under every reply the input checks, the agent (and
