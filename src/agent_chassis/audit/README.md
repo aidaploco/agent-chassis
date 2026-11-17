@@ -34,7 +34,8 @@ worker warns at start.
 
 ## Reading it
 
-There is no read API yet; query the table:
+`GET /v1/audit` (authenticated; this Employee's rows only; optional `kind`, `limit`
+up to 200) returns it as JSON, and the dev console shows it. Or query the table:
 
 ```sql
 select recorded_at, actor, action, subject, detail

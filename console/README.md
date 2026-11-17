@@ -6,7 +6,7 @@ answered, which tools it used, and whether the reply was checked or withheld. Th
 shows who that Employee is and how a message travels through it.
 
 It is a dev tool, not a product: it talks to the HTTP API of running Employees and adds
-nothing to the chassis.
+nothing to the chassis's runtime.
 
 ![The console showing Lana: a ticket-creating turn, then a refused prompt-injection attempt](../docs/images/console-lana.jpg)
 
@@ -43,6 +43,17 @@ the same host ports.
 - **The role panel**, read from the running chassis (`GET /v1/self`), not hand-drawn: the
   Employee's pipeline, its agents with their tools and who they can hand off to, and its
   recently finished conversations.
+- **Tasks and approvals** (for an Employee that has tasks, like Nova). Run a task, watch it
+  pause on its approval-gated tool, read exactly what it wants to do, and approve or deny
+  that one call with a comment. The confirmation first says the decision was *sent* as the
+  console's principal, and says *recorded* only once the audit log has the row: delivering
+  an approval only sends a signal, and a task drops it if nothing is pending (a second tab
+  decided the call first, for instance), in which case the card says so after 20 seconds.
+  A task a schedule started shows up too. If the chassis had to cut a call's arguments
+  short, the card says so, because you would otherwise approve something you cannot read in full.
+- **Records**: this Employee's finished conversations and tasks, and its audit log
+  (approvals with their actor and comment, escalations, manifest overrides). Read-only, and
+  only that Employee's rows: the chassis scopes both.
 - **Example messages**, including ones that try to break it (a prompt-injection attempt, an
   off-topic request, a cancellation without a reason).
 
@@ -70,13 +81,32 @@ token stays on the server, and the chassis needs no CORS configuration.
 |---|---|
 | `employees.json` | The Employees to show: id, base URL, a blurb and example messages. No secrets. |
 | `lib/employees.ts` | Server-only: loads that file and calls an Employee with the token. |
-| `app/api/employees/` | The proxy routes: list (with live status), `/{id}/self`, `/{id}/chat`. |
+| `app/api/employees/` | The proxy routes: list (with live status), `/{id}/self`, `/{id}/chat`, `/{id}/tasks`, `/{id}/approvals`, `/{id}/audit`, `/{id}/outcomes`. |
+| `lib/guard.ts` | The host and origin check every route applies (below). |
 | `lib/trace.ts` | Turns a reply plus the role into the four trace steps (pure, tested). |
 | `components/` | The switcher, the chat, the trace strip and the role panel. |
 
 Settings (`.env.example`): `CONSOLE_TOKEN` is the bearer token the server sends (default
-`dev-console-token`, the same constant `docker-compose.console.yml` configures), and
-`CONSOLE_EMPLOYEES` points at a different employees file.
+`dev-console-token`, the same constant `docker-compose.console.yml` configures),
+`CONSOLE_EMPLOYEES` points at a different employees file, and `CONSOLE_ALLOWED_HOSTS` lists
+the `Host` values the console answers to (default `127.0.0.1:3100,localhost:3100`). If you change
+the port or open the console under another name, every route answers 403 until you list that
+host there.
+
+## Why it can safely approve things
+
+The console has no login of its own and, with approvals, it can now decide something. It
+listens on loopback only, but a web page open in the same browser can still send requests to
+`127.0.0.1`. Every route therefore checks the `Host` header (a DNS-rebinding page cannot
+arrange the right one) and, for anything that changes something, that the request comes
+from the console's own origin and is JSON (a cross-site form cannot send either). It also
+refuses the chassis's "decide every pending call" form: a person decides one call at a time,
+having seen it. Decisions are recorded as the console's token principal (`console`): one
+shared identity, since there is no per-person login yet.
+
+![The console's Tasks and approvals view: a run waiting for approval, showing the report Nova wants to publish with Approve and Deny](../docs/images/console-tasks.jpg)
+
+![The console's audit log for Nova: approvals and denials with their actor and comment, escalations and manifest overrides](../docs/images/console-audit.jpg)
 
 ## Limits
 
@@ -88,11 +118,13 @@ Settings (`.env.example`): `CONSOLE_TOKEN` is the bearer token the server sends 
   approval endpoints refuse to serve without it (D21). Do not change the bindings or put
   either behind a proxy.
 - **Nova's schedule is live.** Her manifest has a daily 08:00 cron, so in this stack her
-  worker starts a report task that then waits for an approval (up to 8 hours) that this
-  console cannot give yet. It is harmless here, and it is Nova behaving as designed.
-- **No tasks or approvals yet.** Nova's real job is scheduled tasks that wait for a human. The
-  console shows her role and chat; starting a task and approving it are the next phase.
-- **No audit or outcome tables yet.** They need read APIs the chassis does not have.
+  worker starts a report task that waits for an approval (up to 8 hours). It shows up under
+  Tasks and approvals; decide it or let it expire. It is Nova behaving as designed.
+- **Expiry is not exercised here.** A task nobody answers is denied by the system after
+  `expire_after` (8 hours for Nova); that path is covered by the chassis's own fast-expiry
+  test, not by this console.
+- **A denied approval ends the task as an escalation**, which is how the chassis treats it:
+  the final reply says a human will follow up.
 - **One conversation per Employee at a time**, kept in the browser tab and lost on reload.
 - **A withheld reply** (an output guardrail tripping) is covered by unit tests of the trace
   logic and by the chassis's own tests, but has not been rendered live in the console, because

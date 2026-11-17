@@ -196,3 +196,48 @@ async def test_a_postgres_restart_does_not_strand_the_pool(postgres_url, sink):
 
     assert await sink.record(_event(workflow_run_id="after")) is True
     assert len(await sink.recent()) == 2
+
+
+async def test_rows_from_the_real_store_fit_the_api_response_model(sink):
+    """The API's OutcomeRecord forbids unknown fields, so a column the store returns
+    that the model does not list is a 500. Validate the real shape, not a fake's."""
+    from agent_chassis.channels.records import OutcomeRecord
+
+    await sink.record(_event(role="lana"))
+
+    (row,) = await sink.read(role="lana")
+
+    record = OutcomeRecord.model_validate(row)
+    assert record.event_version == 1 and record.role == "lana"
+
+
+async def test_read_is_scoped_to_one_role(sink):
+    """Lana and Nova share one table; one must never read the other's usage."""
+    await sink.record(_event(role="lana"))
+    await sink.record(_event(role="nova", task_type="daily_ops_report"))
+    await sink.record(_event(role="lana"))
+
+    lana = await sink.read(role="lana")
+
+    assert [r["role"] for r in lana] == ["lana", "lana"]
+    assert [r["task_type"] for r in await sink.read(role="nova")] == [
+        "daily_ops_report"
+    ]
+    assert await sink.read(role="nobody") == []
+    assert len(await sink.read(role="lana", limit=1)) == 1
+
+
+async def test_a_reader_never_creates_the_table(postgres_url):
+    table = f"outcomes_{uuid.uuid4().hex[:8]}"
+    reader = PgOutcomeSink(postgres_url, table=table)
+    await reader.open_for_reads()
+    try:
+        with pytest.raises(psycopg.errors.UndefinedTable):
+            await reader.read(role="lana")
+    finally:
+        await reader.close()
+    conn = psycopg.connect(postgres_url, autocommit=True)
+    try:
+        assert conn.execute("SELECT to_regclass(%s)", (table,)).fetchone() == (None,)
+    finally:
+        conn.close()

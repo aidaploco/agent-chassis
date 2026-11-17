@@ -6,6 +6,10 @@ from agent_chassis.utils.logger import get_logger
 
 _logger = get_logger(__name__)
 
+# A read that cannot get a connection fails in seconds (the api reports the store as
+# unavailable) instead of waiting out the pool's default of 30.
+_READ_TIMEOUT = 5.0
+
 _COLUMNS = (
     "event_version, role, tenant, task_type, conversation_id, workflow_run_id,"
     " resolution, turns, tool_calls, wall_time_ms, tokens_in, tokens_out,"
@@ -81,6 +85,28 @@ class PgOutcomeSink:
             await install_append_only(conn, self._table)
         _logger.info("outcome store ready table=%s", self._table)
 
+    async def open_for_reads(self) -> None:
+        """Open the pool without touching the schema (see ``PgAuditSink``): the
+        worker owns the table, a read-only process must not run DDL."""
+        await self._pool.open()
+
+    async def read(self, *, role: str, limit: int = 50) -> list[dict]:
+        """Newest rows first for ONE role. Several Employees share this table, so
+        ``role`` is required: an unscoped read would show one Employee's usage to
+        another."""
+        async with self._pool.connection(timeout=_READ_TIMEOUT) as conn:
+            cursor = await conn.execute(
+                sql.SQL(
+                    "SELECT {columns}, recorded_at FROM {table} WHERE role = %s"
+                    " ORDER BY id DESC LIMIT %s"
+                ).format(table=self._t, columns=sql.SQL(_COLUMNS)),
+                (role, limit),
+            )
+            names = [c.name for c in cursor.description or []]
+            return [
+                dict(zip(names, row, strict=True)) for row in await cursor.fetchall()
+            ]
+
     async def close(self) -> None:
         await self._pool.close()
 
@@ -119,7 +145,8 @@ class PgOutcomeSink:
             return await cursor.fetchone() is not None
 
     async def recent(self, *, limit: int = 20) -> list[dict]:
-        """Newest rows first, for tests and debugging (there is no read API)."""
+        """Newest rows first across ALL roles, for tests and debugging. The API uses
+        ``read``, which is scoped to one."""
         async with self._pool.connection() as conn:
             cursor = await conn.execute(
                 sql.SQL(

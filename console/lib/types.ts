@@ -48,7 +48,17 @@ export interface SelfDescription {
   guardrail_details: GuardrailDetail[]
   entry_agent: string
   agent_graph: AgentNode[]
+  tasks: TaskDescription[]
+  approval_required_tools: string[]
   recent_outcomes: string[]
+}
+
+export interface TaskDescription {
+  name: string
+  agent: string
+  prompt: string
+  /** Cron expressions, when the task also runs on its own. */
+  schedules: string[]
 }
 
 export interface ChatResponse {
@@ -70,4 +80,83 @@ export interface Turn {
   /** The agent that answered the previous turn, to spot a hand-off. */
   previousAgent?: string
   error?: string
+}
+
+/** One row of the task list. */
+export interface TaskSummary {
+  workflow_id: string
+  task: string | null
+  /** Temporal's status: RUNNING, COMPLETED, FAILED, TERMINATED... */
+  status: string
+  /** For a RUNNING task: 'running' or 'waiting_on_human'. */
+  state: string | null
+  pending_approvals: number
+  started_at: string | null
+  closed_at: string | null
+}
+
+export interface ApprovalItem {
+  call_id: string
+  tool: string
+  /** The tool call's arguments, as the model wrote them (usually JSON text). */
+  args: string
+}
+
+/** A running (or failed) task, as GET /v1/tasks/{id} reports it. */
+export interface TaskLive {
+  task: string
+  state: 'running' | 'waiting_on_human' | 'failed'
+  pending: ApprovalItem[]
+  error: string | null
+}
+
+/** A finished task's result. */
+export interface TaskResult {
+  task: string
+  content: string
+  agent: string
+  escalated: boolean
+  guardrail_tripped?: string | null
+  approvals: number
+  denials: number
+  expired: number
+}
+
+export interface ApprovalDecision {
+  status: string
+  /** Who the decision was recorded as: the console's token principal. */
+  approver: string
+}
+
+export interface AuditRecord {
+  kind: 'approval' | 'escalation' | 'manifest_override'
+  employee: string
+  tenant: string
+  subject: string
+  actor: string
+  action: string
+  detail: Record<string, unknown>
+  occurred_at: string
+  recorded_at: string
+}
+
+export interface OutcomeRecord {
+  event_version: number
+  role: string
+  tenant: string
+  task_type: string
+  conversation_id: string
+  workflow_run_id: string
+  resolution: string
+  turns: number
+  tool_calls: number
+  wall_time_ms: number
+  tokens_in: number
+  tokens_out: number
+  escalations: number
+  guardrail_trips: number
+  models_used: string[]
+  started_at: string
+  ended_at: string
+  recorded_at: string
 }

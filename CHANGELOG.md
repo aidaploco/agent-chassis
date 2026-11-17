@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+- **Read endpoints for the audit log and the outcome table (D11, D12).** `GET /v1/audit`
+  (optional `kind`) and `GET /v1/outcomes`: newest first, `limit` 1 to 200, typed rows.
+  Authenticated and fail-closed like `/v1/approvals` (no tokens configured: 503), and scoped
+  to this Employee by the manifest's name, never by a query parameter, because Employees
+  share one Postgres and the underlying queries took no employee at all. The api opens the
+  stores read-only (no DDL); an unavailable store is a 503 with a plain message.
+- **`GET /v1/tasks`** lists this Employee's recent task runs (including ones a Temporal
+  Schedule started), newest first, whether each waits for a person, scoped by its task queue.
+- **Fixed: one Employee's API could read and decide another's tasks.** `GET /v1/tasks/{id}`
+  and `POST /v1/approvals` accepted any workflow id in the shared Temporal namespace. They now
+  answer 404 for a task on another unit's queue, the same as for an unknown id.
+- **Fixed: an approver saw a gated call's arguments cut at 500 characters**, so a report
+  could end mid-sentence while a person was asked to approve it. The limit is now 4000, and a
+  call still cut says so in its text (`… [truncated: N more characters not shown]`). No
+  patch needed (data only); a task paused before the upgrade shows the longer text after a
+  replay.
+- `GET /v1/self` also returns the role's `tasks` (with their cron schedules) and its
+  `approval_required_tools`. The `describe_self` tool is now an allowlist: it shows the model
+  exactly the original fields, and a field added to the API never reaches the model by default.
+- **The dev console gains tasks, approvals and records.** Run a task, read what it wants to do,
+  and approve or deny that one call with a comment (recorded as the console's principal);
+  browse an Employee's finished work and audit log. Every console route checks the Host
+  header and, for anything that changes something, the Origin and JSON content type, because
+  the console has no login and can now decide things.
+
 ## 0.8.0 — 2026-11-16
 
 Python 3.15 becomes the only supported version, tools get an idempotency key, and there

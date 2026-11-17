@@ -29,6 +29,11 @@ uv run pytest --cov          # CI gates at --cov-fail-under=80
   It also covers output guardrails: a withheld reply is erased from history
   (unless a tool ran), counts in the outcome, and a history recorded before the
   feature still replays (the `output-guardrails` patch).
+  The read side has its own tests: `unit/test_records_api.py` (auth, scoping to the manifest's
+  Employee whatever the caller sends, bounds, a missing store is a 503),
+  `integration/test_task_list.py` (a waiting task is listed with its state; another Employee's
+  queue is invisible, and the test waits for that run to be visible so absence means something)
+  and the stores' `read()` tests, which also validate real rows against the API's response models.
 - **`integration/test_audit_workflow.py`** and **`integration/test_audit_store.py`**
   — the audit stream (D11): an approval is not acted on until its audit row is
   written (a store outage stalls it), an outage never blocks an escalation, and

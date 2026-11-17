@@ -3,8 +3,12 @@
 import { useEffect, useState } from 'react'
 import { Chat } from '@/components/Chat'
 import { EmployeeSwitcher } from '@/components/EmployeeSwitcher'
+import { RecordsPanel } from '@/components/RecordsPanel'
 import { RolePanel } from '@/components/RolePanel'
+import { TasksPanel } from '@/components/TasksPanel'
 import type { ChatResponse, EmployeeSummary, SelfDescription, Turn } from '@/lib/types'
+
+type View = 'chat' | 'tasks' | 'records'
 
 interface Conversation {
   id: string
@@ -28,6 +32,7 @@ export default function Home() {
   const [roles, setRoles] = useState<Record<string, SelfDescription>>({})
   const [conversations, setConversations] = useState<Record<string, Conversation>>({})
   const [pending, setPending] = useState<Record<string, boolean>>({})
+  const [view, setView] = useState<View>('chat')
 
   useEffect(() => {
     let cancelled = false
@@ -55,6 +60,9 @@ export default function Home() {
 
   const current = employees?.find((employee) => employee.id === selected)
   const currentUp = current?.status === 'up'
+  const hasTasks = (roles[selected ?? '']?.tasks.length ?? 0) > 0
+  // A role without tasks has no Tasks tab: fall back to the chat rather than show nothing.
+  const activeView: View = view === 'tasks' && !hasTasks ? 'chat' : view
 
   // Load the role once the Employee is up (and again if it comes back after being down).
   useEffect(() => {
@@ -135,15 +143,42 @@ export default function Home() {
 
       {current && (
         <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <Chat
-            key={current.id}
-            employee={current}
-            role={roles[current.id]}
-            turns={(conversations[current.id] ?? { turns: [] }).turns}
-            pending={pending[current.id] === true}
-            onSend={(text) => void send(text)}
-            onReset={reset}
-          />
+          <div className="min-w-0 space-y-3">
+            <div role="tablist" aria-label="View" className="flex gap-1.5">
+              {(
+                [
+                  ['chat', 'Chat'],
+                  ...(hasTasks ? ([['tasks', 'Tasks and approvals']] as const) : []),
+                  ['records', 'Records'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={activeView === id}
+                  onClick={() => setView(id)}
+                  className={`rounded-lg border px-3.5 py-1.5 text-sm transition ${
+                    activeView === id ? 'border-accent bg-accent/10 font-medium' : 'border-line text-muted hover:border-accent/50'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {activeView === 'chat' && (
+              <Chat
+                key={current.id}
+                employee={current}
+                role={roles[current.id]}
+                turns={(conversations[current.id] ?? { turns: [] }).turns}
+                pending={pending[current.id] === true}
+                onSend={(text) => void send(text)}
+                onReset={reset}
+              />
+            )}
+            {activeView === 'tasks' && <TasksPanel key={current.id} employee={current} role={roles[current.id]} />}
+            {activeView === 'records' && <RecordsPanel key={current.id} employee={current} />}
+          </div>
           <RolePanel role={roles[current.id]} loading={currentUp} />
         </div>
       )}
