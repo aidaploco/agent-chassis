@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 — 2026-11-16
+
+Read endpoints for the audit log and outcomes, a task list, two security fixes, and tasks,
+approvals and records in the dev console. **Upgrade checks:** (1) `GET /v1/tasks/{id}` and
+`POST /v1/approvals` now answer 404 for a task that is not on this unit's task queue; if a
+deployment ever ran a unit's api and worker on different `TEMPORAL_TASK_QUEUE` values, set
+them equal (the platform's `task_queue` field already does). (2) An approval-gated call's
+arguments now reach approvers up to 4000 characters (was 500), including in the Slack notice.
+Nothing else needs changing: `/v1/self` only gains fields.
 
 - **Read endpoints for the audit log and the outcome table (D11, D12).** `GET /v1/audit`
   (optional `kind`) and `GET /v1/outcomes`: newest first, `limit` 1 to 200, typed rows.
