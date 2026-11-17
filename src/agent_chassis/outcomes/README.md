@@ -43,7 +43,9 @@ remembered, and the worker warns at start.
 
 ## Querying it
 
-There is no read API; it is a table. Some starting points:
+`GET /v1/outcomes` (authenticated; this Employee's rows only; `limit` up to 200)
+returns the newest rows as JSON, and the dev console shows them. For anything
+more, it is a table. Some starting points:
 
 ```sql
 -- Tokens and conversations per role per day

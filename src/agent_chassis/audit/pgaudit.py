@@ -10,6 +10,10 @@ from agent_chassis.utils.logger import get_logger
 
 _logger = get_logger(__name__)
 
+# A read that cannot get a connection fails in seconds (the api reports the store as
+# unavailable) instead of waiting out the pool's default of 30.
+_READ_TIMEOUT = 5.0
+
 
 class PgAuditSink:
     """The audit stream in Postgres: one append-only table (D11).
@@ -76,6 +80,42 @@ class PgAuditSink:
             await install_append_only(conn, self._table)
         _logger.info("audit store ready table=%s", self._table)
 
+    async def open_for_reads(self) -> None:
+        """Open the pool without touching the schema. The worker owns the table (its
+        ``start()`` creates it and installs the append-only triggers); a process that
+        only reads, like the HTTP api, must not run DDL. A missing table then shows
+        up as an error on the first read, which the caller reports as "unavailable"."""
+        await self._pool.open()
+
+    async def read(
+        self, *, employee: str, kind: str | None = None, limit: int = 50
+    ) -> list[dict]:
+        """Newest rows first for ONE Employee. Several Employees share this table,
+        so a read that is not scoped by ``employee`` would hand one Employee's audit
+        trail to another. ``employee`` is required for that reason."""
+        clauses = [sql.SQL("employee = %s")]
+        params: list = [employee]
+        if kind:
+            clauses.append(sql.SQL("kind = %s"))
+            params.append(kind)
+        params.append(limit)
+        async with self._pool.connection(timeout=_READ_TIMEOUT) as conn:
+            cursor = await conn.execute(
+                sql.SQL(
+                    """
+                    SELECT kind, employee, tenant, subject, actor, action, detail,
+                           occurred_at, recorded_at
+                    FROM {table} WHERE {where}
+                    ORDER BY recorded_at DESC, id DESC LIMIT %s
+                    """
+                ).format(table=self._t, where=sql.SQL(" AND ").join(clauses)),
+                params,
+            )
+            columns = [c.name for c in cursor.description or []]
+            return [
+                dict(zip(columns, row, strict=True)) for row in await cursor.fetchall()
+            ]
+
     async def close(self) -> None:
         await self._pool.close()
 
@@ -108,7 +148,8 @@ class PgAuditSink:
             return await cursor.fetchone() is not None
 
     async def recent(self, *, kind: str | None = None, limit: int = 20) -> list[dict]:
-        """Newest rows first, for tests and debugging (there is no read API)."""
+        """Newest rows first across ALL Employees, for tests and debugging. The API uses
+        ``read``, which is scoped to one."""
         clause = sql.SQL("WHERE kind = %s" if kind else "")
         params: list = [kind] if kind else []
         params.append(limit)

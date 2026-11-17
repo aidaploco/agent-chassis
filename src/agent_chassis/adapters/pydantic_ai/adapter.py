@@ -270,7 +270,7 @@ class PydanticAIAdapter:
                     ApprovalItem(
                         call_id=call.tool_call_id,
                         tool=call.tool_name,
-                        args=str(call.args)[:500],
+                        args=_approval_args(call.args),
                     )
                     for call in output.approvals
                 ]
@@ -392,6 +392,23 @@ def _turn_starts(messages: list[ModelMessage]) -> list[int]:
                 starts.append(index)
             routed = False
     return starts
+
+
+# What an approver is shown of a gated call's arguments. It used to be 500 characters,
+# which cut a report body off mid-sentence and still asked a person to approve "it". The
+# limit exists to bound the workflow payload and the approver notice, not to hide the
+# call, so it is generous, and anything still cut says so in the text itself.
+_MAX_APPROVAL_ARGS = 4000
+
+
+def _approval_args(call_args: Any) -> str:
+    text = str(call_args)
+    if len(text) <= _MAX_APPROVAL_ARGS:
+        return text
+    omitted = len(text) - _MAX_APPROVAL_ARGS
+    return (
+        f"{text[:_MAX_APPROVAL_ARGS]}… [truncated: {omitted} more characters not shown]"
+    )
 
 
 def _is_route_call(tool_name: str) -> bool:

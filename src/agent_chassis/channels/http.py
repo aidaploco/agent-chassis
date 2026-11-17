@@ -2,11 +2,13 @@
 request/response shape a plain chat endpoint offers."""
 
 import asyncio
+import re
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 from temporalio.client import Client, WithStartWorkflowOperation
@@ -15,6 +17,11 @@ from temporalio.contrib.opentelemetry import OpenTelemetryInterceptor
 from temporalio.exceptions import TemporalError
 from temporalio.service import RPCError, RPCStatusCode
 
+from agent_chassis.channels.records import (
+    AuditReader,
+    OutcomeReader,
+    register_record_routes,
+)
 from agent_chassis.config import ChassisSettings, get_settings
 from agent_chassis.contracts import ContentPart, MessageEnvelope
 from agent_chassis.durable.converter import build_data_converter
@@ -100,6 +107,43 @@ class TaskStartResponse(BaseModel):
     task: str
 
 
+class TaskSummary(BaseModel):
+    """One row of ``GET /v1/tasks``: enough to find a task and see whether it is
+    waiting for a person. ``GET /v1/tasks/{id}`` has the detail (pending calls)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_id: str
+    # Which manifest task this run is, when its id says so (API-started and
+    # schedule-started runs both do).
+    task: str | None
+    # Temporal's own status: RUNNING, COMPLETED, FAILED, TERMINATED, ...
+    status: str
+    # For a RUNNING task: "running" or "waiting_on_human". None if it could not be
+    # asked (the worker is down) or the run has finished.
+    state: str | None
+    pending_approvals: int
+    started_at: datetime | None
+    closed_at: datetime | None
+
+
+# What a visibility-query literal may contain. The queue name comes from settings,
+# never from a caller, but a value that could break out of the quotes is refused
+# rather than escaped.
+_SAFE_QUERY_LITERAL = re.compile(r"^[A-Za-z0-9._:/-]+$")
+_MAX_LISTED_TASKS = 50
+_STATUS_QUERY_TIMEOUT = 2.0
+
+
+def _task_name(workflow_id: str, employee: str, names: set[str]) -> str | None:
+    """Which manifest task a workflow id belongs to. Runs started through the API are
+    ``task-<task>-<uuid>``; Temporal Schedules start ``task-<employee>-<task>-<time>``."""
+    for name in names:
+        if workflow_id.startswith((f"task-{name}-", f"task-{employee}-{name}-")):
+            return name
+    return None
+
+
 class ApprovalRequest(BaseModel):
     """The approver is NOT a request field (D21): the audited identity is
     the authenticated principal, never caller-supplied text."""
@@ -120,6 +164,12 @@ class ChatResponse(BaseModel):
     escalated: bool
     guardrail_tripped: str | None
     tools_called: list[str] = []
+
+
+def _not_found(workflow_id: str) -> HTTPException:
+    return HTTPException(
+        status_code=404, detail=f"no task workflow with id {workflow_id!r}"
+    )
 
 
 def _not_found_as_404(exc: RPCError, workflow_id: str) -> HTTPException | None:
@@ -167,6 +217,8 @@ def create_app(
     get_client: Callable[[], Awaitable[Client]],
     resolved: ResolvedRole | None = None,
     get_substrate: Callable[[], Awaitable[MemorySubstrate | None]] | None = None,
+    get_audit: Callable[[], Awaitable[AuditReader | None]] | None = None,
+    get_outcomes: Callable[[], Awaitable[OutcomeReader | None]] | None = None,
 ) -> FastAPI:
     """App factory; the client provider is injected so tests can supply a
     dev-server client while deployments connect from settings."""
@@ -193,6 +245,14 @@ def create_app(
             values exist in manifests), capabilities, recent outcomes."""
             substrate = await get_substrate() if get_substrate else None
             return await build_self_description(resolved, substrate)
+
+        register_record_routes(
+            app,
+            employee=resolved.manifest.employee.name,
+            get_audit=get_audit,
+            get_outcomes=get_outcomes,
+            auth=require_auth,
+        )
 
     @app.post("/v1/messages", response_model=ChatResponse)
     async def post_message(
@@ -277,13 +337,11 @@ def create_app(
         )
         return TaskStartResponse(workflow_id=workflow_id, task=request.task)
 
-    @app.get("/v1/tasks/{workflow_id}", response_model=TaskStatus | TaskReply)
-    async def task_status(
-        workflow_id: str,
-        principal: Annotated[str, Depends(require_auth)],
-    ) -> TaskStatus | TaskReply:
-        """Live status (incl. pending approvals) while running; the final
-        TaskReply once done."""
+    async def own_task_handle(workflow_id: str):
+        """A handle to one of THIS Employee's tasks. Employees share a Temporal namespace, so
+        a workflow id alone proves nothing: a task on another Employee's queue is answered
+        exactly like an unknown id (404), so neither its state nor its approvals can be reached
+        through this unit, and nothing is revealed about whether it exists."""
         client = await get_client()
         handle = client.get_workflow_handle_for(TaskWorkflow.run, workflow_id)
         try:
@@ -292,6 +350,76 @@ def create_app(
             if not_found := _not_found_as_404(exc, workflow_id):
                 raise not_found from exc
             raise
+        if description.task_queue != get_settings().temporal_task_queue:
+            raise _not_found(workflow_id)
+        return handle, description
+
+    @app.get("/v1/tasks", response_model=list[TaskSummary])
+    async def list_tasks(
+        principal: Annotated[str, Depends(require_auth)],
+        limit: Annotated[int, Query(ge=1, le=_MAX_LISTED_TASKS)] = 20,
+    ) -> list[TaskSummary]:
+        """Recent task runs of THIS Employee, newest first, including ones nobody
+        started through the API (a schedule's). Scoped by this unit's task queue, so
+        Employees sharing a Temporal namespace do not see each other's tasks."""
+        settings = get_settings()
+        queue = settings.temporal_task_queue
+        if not _SAFE_QUERY_LITERAL.match(queue):
+            raise HTTPException(
+                status_code=500, detail="TEMPORAL_TASK_QUEUE has unsafe characters"
+            )
+        employee = resolved.manifest.employee.name if resolved else ""
+        names = {t.name for t in resolved.manifest.tasks} if resolved else set()
+        client = await get_client()
+        found = [
+            w
+            async for w in client.list_workflows(
+                f"WorkflowType = 'TaskWorkflow' AND TaskQueue = '{queue}'",
+                # Not every visibility store supports ORDER BY (the dev server's does not),
+                # and the default lists open runs first. Fetch extra, sort here, trim below.
+                limit=min(limit * 2, 2 * _MAX_LISTED_TASKS),
+            )
+        ]
+
+        async def summarize(w) -> TaskSummary:
+            state: str | None = None
+            pending = 0
+            if w.status and w.status.name == "RUNNING":
+                try:  # per row, soft: one unreachable worker must not fail the list
+                    live = await asyncio.wait_for(
+                        client.get_workflow_handle_for(TaskWorkflow.run, w.id).query(
+                            TaskWorkflow.status
+                        ),
+                        _STATUS_QUERY_TIMEOUT,
+                    )
+                    state, pending = live.state, len(live.pending)
+                except Exception:  # noqa: BLE001
+                    state = None
+            return TaskSummary(
+                workflow_id=w.id,
+                task=_task_name(w.id, employee, names),
+                status=w.status.name if w.status else "UNKNOWN",
+                state=state,
+                pending_approvals=pending,
+                started_at=w.start_time,
+                closed_at=w.close_time,
+            )
+
+        rows = list(await asyncio.gather(*(summarize(w) for w in found)))
+        # Newest first, whatever order Temporal returned them in.
+        rows.sort(
+            key=lambda r: r.started_at or datetime.min.replace(tzinfo=UTC), reverse=True
+        )
+        return rows[:limit]
+
+    @app.get("/v1/tasks/{workflow_id}", response_model=TaskStatus | TaskReply)
+    async def task_status(
+        workflow_id: str,
+        principal: Annotated[str, Depends(require_auth)],
+    ) -> TaskStatus | TaskReply:
+        """Live status (incl. pending approvals) while running; the final
+        TaskReply once done."""
+        handle, description = await own_task_handle(workflow_id)
         if description.status and description.status.name != "RUNNING":
             try:
                 return await handle.result()
@@ -308,8 +436,7 @@ def create_app(
     ) -> dict[str, str]:
         """Approver decision (D10 signal); the audited identity (D11) is the
         authenticated principal — the body cannot name someone else."""
-        client = await get_client()
-        handle = client.get_workflow_handle_for(TaskWorkflow.run, request.workflow_id)
+        handle, _ = await own_task_handle(request.workflow_id)
         try:
             await handle.signal(
                 TaskWorkflow.approve,

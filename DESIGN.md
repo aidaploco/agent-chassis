@@ -23,12 +23,12 @@ left as decided; these parts of it are not in the code yet:
   with `http` (pull-based) they are logged only and the worker warns at start.
   Decisions still arrive on `/v1/approvals`. Tasks paused before the
   `notify-approvers` patch deployed stay silent until they finish.
-- **D11:** the audit table exists (`chassis_audit`, see the amendment under
-  D11). Not built: a read API (`GET /v1/audit`); query the table directly.
-  Without `POSTGRES_URL` the stream is logged only and the worker warns.
+- **D11:** the audit table exists (`chassis_audit`) and is readable through
+  `GET /v1/audit` (see the amendments under D11). Without `POSTGRES_URL` the
+  stream is logged only and the worker warns.
 - **D12:** built (`chassis_outcomes`, see the amendment under D12), with one
-  deviation from the wording: a dedicated span rather than a span *event*. Not
-  built: a read API; query the table.
+  deviation from the wording: a dedicated span rather than a span *event*. It
+  is readable through `GET /v1/outcomes`.
 - **D15:** conversation replies and approver notices (escalations, approval
   requests, reminders; see the amendment under D15) use the outbound
   delivery path. Scheduled or proactive task messages are not built, and the
@@ -377,6 +377,17 @@ that nobody will be told. A task paused before the patch deployed stays silent
 for its whole life (verified live). Decisions still arrive only on
 `/v1/approvals` (D21).
 
+**Amended 2026-11-16 — an approver sees the whole call.** A gated call's arguments
+reached the approver cut at 500 characters (`str(call.args)[:500]` in the adapter). The
+console's approval screen made it visible: a report body ended mid-sentence, and a person
+was asked to approve it. The limit is now 4000, which exists to bound the workflow payload
+and the approver notice, not to hide the call, and anything still cut says so in the text
+(`… [truncated: N more characters not shown]`), which the console turns into a warning on
+the card. The chassis still accepts a decision with no `call_id` ("decide every pending
+call"); the console never sends it. This changes data only, not which commands the workflow
+issues, so it needs no patch (D14): a run paused before the change simply shows the longer
+text after a replay.
+
 ### D11 — One audit log for manifest overrides and approval decisions
 
 **Decision (per amendment).** A single append-only audit stream records both
@@ -409,6 +420,32 @@ worker restart cannot write a second row).
   warns at start that there is no durable record.
 - Outcome events (D12) are not in this table; they have their own, with typed
   columns for metrics (see the amendment under D12).
+
+**Amended 2026-11-16 — both tables have a read endpoint.** `GET /v1/audit` (optional
+`kind`) and `GET /v1/outcomes`, newest first, `limit` 1 to 200 (default 50), each row
+typed. Three decisions. **Authenticated and fail-closed:** they use the same dependency as
+`/v1/approvals`, so without `HTTP_BEARER_TOKENS` they answer 503 and never anonymously:
+audit rows carry approver identities, comments and the reason for an escalation. **Scoped
+to this Employee by the manifest's name, never by anything the caller sends:** Employees
+share one Postgres and one table, and the two queries previously took no employee at all, so
+an unscoped read would have handed Lana's audit trail to Nova. `?employee=` is ignored, and
+the store's `read()` requires the name. **Read-only open:** the api process opens the pool
+without running DDL (the worker owns the schema), so a missing table or an unreachable
+database is a 503 with a plain message and the SQL error stays in the log. Verified live on
+the two-Employee stack: an approval and a denial each appear with their actor and comment,
+and neither Employee's endpoint returned a row of the other's. A first live run also found
+that the response model forbade the store's `event_version` column, a 500 no unit test had
+caught because the fake store lacked the column; tests now validate rows from the real
+stores against the response models. Beside them, `GET /v1/tasks` lists recent task runs of
+this Employee (including ones a Temporal Schedule started, which nobody started through the
+API), with whether each is waiting for a person, newest first, scoped by this unit's task
+queue (a visibility query built from settings only; sorted in code, because not every
+visibility store supports `ORDER BY`). The same scoping now covers the endpoints that act on
+one task: `GET /v1/tasks/{id}` and `POST /v1/approvals` answer 404 for a workflow on another
+unit's queue, exactly as for an unknown id, so one Employee's API can neither read nor decide
+another's tasks. Before, they accepted any workflow id in the shared namespace. Delivering an
+approval only sends a signal, which the task drops when nothing is pending, so `delivered` is
+not proof it was recorded: a client that needs to know reads the audit log.
 
 ### D12 — Outcome events are a public contract
 
@@ -443,8 +480,9 @@ set.
   active, so there is no span to hang an event on. The activity emits a span
   `outcome <task_type>` with the metrics as attributes and `session.id` = the
   conversation id.
-- **No read API;** query the table (examples in `outcomes/README.md`). Without
-  `POSTGRES_URL` outcomes are logged only and the worker warns.
+- **Readable through `GET /v1/outcomes`** (see the amendment under D11, which
+  covers both tables), or query the table (examples in `outcomes/README.md`).
+  Without `POSTGRES_URL` outcomes are logged only and the worker warns.
 
 The audit and outcome stores share a small module (`pgstore.py`) for the pool
 (`min_size=1`, `max_size=4`, `check_connection`, so a Postgres restart does not

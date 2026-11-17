@@ -72,7 +72,7 @@ The same conversation in the Temporal UI. Each guardrail check and model call is
 
 ## The dev console
 
-To see what the chassis does instead of reading JSON, run the [dev console](console/README.md): switch between Lana and Nova, chat, and see under every reply which input checks passed, which agent answered, which tools it used and whether the reply was checked.
+To see what the chassis does instead of reading JSON, run the [dev console](console/README.md): switch between Lana and Nova, chat, see under every reply which input checks passed, which agent answered, which tools it used and whether the reply was checked, run tasks and approve or deny what they ask to do, and browse the audit log and finished work.
 
 ```bash
 docker compose -f docker-compose.console.yml up --build   # Lana and Nova side by side
@@ -86,6 +86,14 @@ Lana, after a bug report (the supervisor handed off to support, which called `cr
 Nova: an error summary (one tool), then a request to publish a report. She asked for the approval-gated `publish_report`, so the turn ended as an escalation to a human, and the console labels the tools as *requested* because the gated one never ran:
 
 ![The dev console showing Nova: an error summary, then a publish request that ended as an escalation with its tools shown as requested](docs/images/console-nova.jpg)
+
+A task, by contrast, runs on its own and waits for a person. Starting Nova's daily report pauses it at the approval-gated `publish_report`; the console shows what she wants to publish, and approving or denying decides that one call:
+
+![The console's Tasks and approvals view: a run waiting for approval, showing the report to publish with Approve and Deny](docs/images/console-tasks.jpg)
+
+Every decision lands in the audit log (here Nova's: approvals and denials with their actor and comment, escalations, manifest overrides), readable through `GET /v1/audit` or in the console:
+
+![The console's audit log for Nova](docs/images/console-audit.jpg)
 
 ## Quickstart
 
@@ -117,7 +125,8 @@ With Lana running, try the mock accounts `dana@example.com` (Pro) and `sam@examp
 |---|---|
 | `POST /v1/messages` | Send a message; the reply rides the workflow update result |
 | `GET /v1/self` | The Employee's self-description: capabilities, guardrails with the side each runs on, the routing graph, recent performance |
-| `POST /v1/tasks`, `GET /v1/tasks/{id}` | Start and poll a scheduled or one-shot task |
+| `POST /v1/tasks`, `GET /v1/tasks`, `GET /v1/tasks/{id}` | Start a task, list this Employee's recent runs (including ones a schedule started), poll one |
+| `GET /v1/audit`, `GET /v1/outcomes` | This Employee's audit log and finished work, newest first (requires authentication; scoped to this Employee) |
 | `POST /v1/approvals` | Approve or deny a paused tool call (requires authentication) |
 | `POST /v1/webhooks/slack` | Slack-shaped inbound webhook (HMAC-verified when configured) |
 | `GET /healthz` | Liveness |
@@ -224,8 +233,8 @@ Full text and rejected alternatives are in [`DESIGN.md`](DESIGN.md). Decisions a
 | **D7** | Manifest schema v1: versioned, `extra="forbid"`, naming-stable identifiers, fail-closed. |
 | **D8** | Memory is retrieval plus write-back behind one interface (pgvector today). |
 | **D9** | Payload encryption fails closed: no codec key, no worker. |
-| **D10 / D11** | Human escalation is a first-class workflow state; one append-only audit log for overrides and approvals. Escalations, approval pauses and reminders are pushed to a Slack approvers webhook when configured. Approvals, escalations and manifest overrides are recorded in an append-only Postgres audit table (`chassis_audit`); approvals fail closed. **Not built: a read API for it, and a wait state for conversations (only tasks wait).** |
-| **D12** | Each completed conversation or task emits one versioned `OutcomeEvent`: a log line, a row in an append-only `chassis_outcomes` table with typed columns (best-effort, bounded retries), a span, and a memory entry. **Not built: a read API.** |
+| **D10 / D11** | Human escalation is a first-class workflow state; one append-only audit log for overrides and approvals. Escalations, approval pauses and reminders are pushed to a Slack approvers webhook when configured. Approvals, escalations and manifest overrides are recorded in an append-only Postgres audit table (`chassis_audit`); approvals fail closed. Readable through `GET /v1/audit`. **Not built: a wait state for conversations (only tasks wait).** |
+| **D12** | Each completed conversation or task emits one versioned `OutcomeEvent`: a log line, a row in an append-only `chassis_outcomes` table with typed columns (best-effort, bounded retries), a span, and a memory entry. Readable through `GET /v1/outcomes`. |
 | **D13** | Inbound turns are serialized through an in-workflow FIFO queue. |
 | **D14** | Workflow changes ship behind `workflow.patched()`; ledger in `PATCHES.md`. |
 | **D15** | Outbound delivery is at-least-once and idempotent per structured delivery key. Conversation replies and approver notices (escalations, approval requests, reminders) use it. **Not built: scheduled or proactive task messages.** |

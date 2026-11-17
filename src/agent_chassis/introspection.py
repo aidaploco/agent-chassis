@@ -42,6 +42,17 @@ class AgentDescription(BaseModel):
     routes_to: list[str]
 
 
+class TaskDescription(BaseModel):
+    """A manifest task (D6) and when, if ever, it runs on its own."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    agent: str
+    prompt: str
+    schedules: list[str] = Field(default_factory=list)  # cron expressions
+
+
 class SelfDescription(BaseModel):
     """Manifest view with secrets redacted by construction: manifests hold
     no secret values (secrets are env/Secret-delivered), only requirement
@@ -63,6 +74,8 @@ class SelfDescription(BaseModel):
     guardrail_details: list[GuardrailDescription] = Field(default_factory=list)
     entry_agent: str = ""
     agent_graph: list[AgentDescription] = Field(default_factory=list)
+    tasks: list[TaskDescription] = Field(default_factory=list)
+    approval_required_tools: list[str] = Field(default_factory=list)
     recent_outcomes: list[str] = Field(default_factory=list)
 
 
@@ -112,8 +125,35 @@ async def build_self_description(
             )
             for name, spec in sorted(manifest.routing.agents.items())
         ],
+        tasks=[
+            TaskDescription(
+                name=task.name,
+                agent=task.agent,
+                prompt=task.prompt,
+                schedules=[s.cron for s in manifest.schedules if s.task == task.name],
+            )
+            for task in manifest.tasks
+        ],
+        approval_required_tools=list(manifest.escalation.approval_required_tools),
         recent_outcomes=recent,
     )
+
+
+# What the describe_self TOOL shows the model: exactly the original fields. An allowlist,
+# so a field added to the API for its clients (the routing graph, the guardrail stages,
+# the tasks and gated tools) never reaches the model unless someone decides it should.
+_MODEL_VISIBLE = {
+    "employee",
+    "role",
+    "display_name",
+    "tone",
+    "model_tier",
+    "channels",
+    "agents",
+    "capabilities",
+    "guardrails",
+    "recent_outcomes",
+}
 
 
 class IntrospectionPack(CapabilityPack):
@@ -135,11 +175,6 @@ class IntrospectionPack(CapabilityPack):
             description = await build_self_description(
                 runtime.resolved, runtime.substrate
             )
-            # The model is told what it always was. The routing graph and the guardrail
-            # stages exist for the API's clients; handing them to the model would let a
-            # user ask the agent how its checks are arranged.
-            return description.model_dump_json(
-                indent=2, exclude={"guardrail_details", "entry_agent", "agent_graph"}
-            )
+            return description.model_dump_json(indent=2, include=_MODEL_VISIBLE)
 
         return [ToolSpec("describe_self", describe_self, "Self-description")]

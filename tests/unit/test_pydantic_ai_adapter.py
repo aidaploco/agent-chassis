@@ -179,6 +179,40 @@ def _approval_script(messages: list[ModelMessage], info: AgentInfo) -> ModelResp
     return ModelResponse(parts=[ToolCallPart("get_invoice", {"invoice_id": "INV-9"})])
 
 
+def _long_args_script(size: int):
+    def script(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(
+            parts=[ToolCallPart("get_invoice", {"invoice_id": "x" * size})]
+        )
+
+    return script
+
+
+async def test_an_approver_sees_a_long_call_whole():
+    """A gated call's arguments used to be cut at 500 characters, so a person was
+    asked to approve a report they could only read the start of."""
+    adapter = PydanticAIAdapter(model=FunctionModel(_long_args_script(1500)))
+    handle = adapter.build(_resolved(approval_required=["get_invoice"]))
+
+    paused = await adapter.run_turn(handle, _task_request("billing", prompt="go"))
+
+    assert isinstance(paused.directive, NeedsApproval)
+    args = paused.directive.items[0].args
+    assert "x" * 1500 in args and "truncated" not in args
+
+
+async def test_a_call_too_long_even_for_that_says_so_in_the_text():
+    adapter = PydanticAIAdapter(model=FunctionModel(_long_args_script(6000)))
+    handle = adapter.build(_resolved(approval_required=["get_invoice"]))
+
+    paused = await adapter.run_turn(handle, _task_request("billing", prompt="go"))
+
+    assert isinstance(paused.directive, NeedsApproval)
+    args = paused.directive.items[0].args
+    assert "[truncated:" in args and "more characters not shown]" in args
+    assert len(args) < 4200
+
+
 async def test_gated_tool_pauses_and_approval_resumes():
     """D10 round trip: gated tool → NeedsApproval; approve → tool runs."""
     adapter = PydanticAIAdapter(model=FunctionModel(_approval_script))

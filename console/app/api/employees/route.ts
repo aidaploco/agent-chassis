@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server'
 import { callEmployee, loadEmployees } from '@/lib/employees'
+import { checkRequest } from '@/lib/guard'
 import type { EmployeeSummary } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
 
 /** Every configured Employee, with whether it is answering right now and who it
  *  says it is. The base URL and the token stay on the server. */
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = checkRequest(request)
+  if (refused) return refused
   try {
     const employees = await loadEmployees()
     const summaries = await Promise.all(

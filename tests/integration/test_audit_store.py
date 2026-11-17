@@ -162,3 +162,58 @@ async def test_overrides_are_recorded_once_per_manifest_version(sink):
     assert threshold["actor"] == "manifest" and threshold["action"] == "override"
     assert threshold["detail"]["value"] == 0.7 and threshold["detail"]["default"] == 0.5
     assert len(threshold["detail"]["manifest_sha256"]) == 64
+
+
+async def test_rows_from_the_real_store_fit_the_api_response_model(sink):
+    """Same contract as for outcomes: the real row shape must validate."""
+    from agent_chassis.channels.records import AuditRecord
+
+    await sink.record(_event(employee="nova"))
+
+    (row,) = await sink.read(employee="nova")
+
+    assert AuditRecord.model_validate(row).actor == "aida"
+
+
+async def test_read_is_scoped_to_one_employee(sink):
+    """Lana and Nova share one table; one must never read the other's trail."""
+    await sink.record(_event(employee="nova", dedupe_key="n1"))
+    await sink.record(_event(employee="lana", dedupe_key="l1"))
+    await sink.record(
+        _event(employee="nova", kind="escalation", action="escalated", dedupe_key="n2")
+    )
+
+    nova = await sink.read(employee="nova")
+    only_escalations = await sink.read(employee="nova", kind="escalation")
+
+    assert {r["employee"] for r in nova} == {"nova"} and len(nova) == 2
+    assert [r["action"] for r in only_escalations] == ["escalated"]
+    assert [r["employee"] for r in await sink.read(employee="lana")] == ["lana"]
+    assert await sink.read(employee="nobody") == []
+
+
+async def test_read_orders_newest_first_and_honours_the_limit(sink):
+    for n in range(4):
+        await sink.record(_event(dedupe_key=f"k{n}", subject=f"task-{n}"))
+
+    rows = await sink.read(employee="nova", limit=3)
+
+    assert [r["subject"] for r in rows] == ["task-3", "task-2", "task-1"]
+
+
+async def test_a_reader_never_creates_the_table(postgres_url):
+    """The api process only reads. Opening for reads must not run DDL: the worker
+    owns the schema, and a missing table is reported, not silently created."""
+    table = f"audit_{uuid.uuid4().hex[:8]}"
+    reader = PgAuditSink(postgres_url, table=table)
+    await reader.open_for_reads()
+    try:
+        with pytest.raises(psycopg.errors.UndefinedTable):
+            await reader.read(employee="nova")
+    finally:
+        await reader.close()
+    conn = psycopg.connect(postgres_url, autocommit=True)
+    try:
+        assert conn.execute("SELECT to_regclass(%s)", (table,)).fetchone() == (None,)
+    finally:
+        conn.close()

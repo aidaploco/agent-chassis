@@ -9,6 +9,7 @@ from agent_chassis.channels.http import create_app
 from agent_chassis.durable.runtime_context import RoleRuntime, set_role_runtime
 from agent_chassis.introspection import (
     IntrospectionPack,
+    SelfDescription,
     build_self_description,
 )
 from agent_chassis.manifest import RoleManifest
@@ -124,6 +125,37 @@ async def test_self_description_graph_and_guardrail_stages(resolved):
     assert described.guardrails == ["message_length", "reply_length"]  # unchanged
 
 
+async def test_self_description_lists_tasks_schedules_and_gated_tools():
+    """The console's "run a task" and approval screens read these."""
+    registry = PackRegistry()
+    registry.register(BillingPack())
+    registry.register(SupportPack())
+    registry.register(MemoryPack())
+    registry.register(IntrospectionPack())
+    data = yaml.safe_load((FIXTURES / "lana.yaml").read_text())
+    data["capabilities"][0]["config"] = {}
+    data["guardrails"] = []
+    data["kpis"]["task_types"] = ["conversation", "nightly"]
+    data["tasks"] = [
+        {"name": "nightly", "agent": "billing", "prompt": "Do the nightly run."}
+    ]
+    data["schedules"] = [
+        {"name": "nightly_run", "cron": "0 8 * * *", "task": "nightly"}
+    ]
+    data["escalation"]["approval_required_tools"] = ["get_invoice"]
+    role = registry.resolve(RoleManifest.model_validate(data))
+
+    described = await build_self_description(role, RecentFakeSubstrate())
+
+    (task,) = described.tasks
+    assert (task.name, task.agent, task.schedules) == (
+        "nightly",
+        "billing",
+        ["0 8 * * *"],
+    )
+    assert described.approval_required_tools == ["get_invoice"]
+
+
 async def test_self_description_survives_sick_substrate(resolved):
     class SickSubstrate(RecentFakeSubstrate):
         async def recent(self, kinds=None, limit=5):
@@ -151,9 +183,11 @@ async def test_self_endpoint(resolved):
     assert body["employee"] == "lana" and body["recent_outcomes"]
 
 
-async def test_describe_self_tool_does_not_expose_the_client_only_fields(resolved):
-    """guardrail_details / entry_agent / agent_graph are for API clients; the model
-    keeps seeing exactly what it always did."""
+async def test_describe_self_tool_shows_the_model_only_the_original_fields(resolved):
+    """The API's client-only fields (routing graph, guardrail stages, tasks, gated
+    tools) must not reach the model: an allowlist, so a new field is hidden by default."""
+    import json
+
     set_role_runtime(
         RoleRuntime(
             resolved=resolved,
@@ -165,11 +199,24 @@ async def test_describe_self_tool_does_not_expose_the_client_only_fields(resolve
     pack = IntrospectionPack()
     (spec,) = pack.tools(pack.config_model())
 
-    output = await spec.handler()
+    shown = set(json.loads(await spec.handler()))
 
-    assert '"capabilities"' in output and '"guardrails"' in output
-    for hidden in ("agent_graph", "guardrail_details", "entry_agent"):
-        assert hidden not in output
+    assert shown == {
+        "employee",
+        "role",
+        "display_name",
+        "tone",
+        "model_tier",
+        "channels",
+        "agents",
+        "capabilities",
+        "guardrails",
+        "recent_outcomes",
+    }
+    # ...and the API still offers the rest to its clients.
+    assert {"guardrail_details", "entry_agent", "agent_graph", "tasks"} <= set(
+        SelfDescription.model_fields
+    )
 
 
 async def test_describe_self_tool(resolved):

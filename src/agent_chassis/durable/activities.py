@@ -102,12 +102,15 @@ def render_notice(notice: ApproverNotice) -> str:
 
 
 class ChassisActivities:
-    """Chassis-owned activities: guardrail pre-flight (D5), history
-    compaction (D6a), outcome emission (D12), escalation records (D11).
+    """Chassis-owned activities: guardrail pre-flight and output checks (D5),
+    history compaction (D6a), outcome emission (D12), audit and escalation
+    records (D11), approver notices (D10) and outbound delivery (D15).
 
-    V1 emits outcomes, escalations and approvals as structured log lines
-    plus a best-effort one-line entry in the memory substrate; there is no
-    dedicated Postgres audit/outcome table yet (D11/D12 name one).
+    Outcomes, escalations and approvals are each a structured log line, and a
+    row in an append-only Postgres table (``chassis_outcomes`` / ``chassis_audit``)
+    when POSTGRES_URL is set. An approval's row is written first and fails
+    closed; an outcome's is best-effort with bounded retries. The api reads the
+    tables back through ``GET /v1/audit`` and ``GET /v1/outcomes``.
     """
 
     def __init__(self, runtime: RoleRuntime) -> None:

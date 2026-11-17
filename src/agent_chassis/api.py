@@ -8,12 +8,14 @@ Temporal client and the memory substrate connect lazily on first use.
 
 import asyncio
 
+from agent_chassis.audit import PgAuditSink
 from agent_chassis.channels.http import create_app, default_client_provider
 from agent_chassis.channels.slack import create_router
 from agent_chassis.config import get_settings
 from agent_chassis.memory.base import MemorySubstrate
 from agent_chassis.memory.pgvector import PgVectorSubstrate
 from agent_chassis.observability import setup_tracing
+from agent_chassis.outcomes import PgOutcomeSink
 from agent_chassis.role_loader import build_substrate, load_role
 from agent_chassis.utils.logger import get_logger
 
@@ -48,6 +50,34 @@ def _substrate_provider(resolved):  # lazy start, cached
     return get_substrate
 
 
+def _store_provider(make):
+    """A lazily opened, cached READ-ONLY store: the api never creates the tables (the
+    worker owns the schema). ``None`` when POSTGRES_URL is unset or the database cannot
+    be reached; nothing is cached on failure, so the next request retries."""
+    lock = asyncio.Lock()
+    cache: list = []
+
+    async def get_store():
+        if cache:
+            return cache[0]
+        dsn = get_settings().postgres_url
+        if not dsn:
+            return None
+        async with lock:
+            if not cache:
+                store = make(dsn)
+                try:
+                    await store.open_for_reads()
+                except Exception:
+                    _logger.exception("could not open the store for reads")
+                    await store.close()
+                    return None
+                cache.append(store)
+        return cache[0]
+
+    return get_store
+
+
 def _build():  # pragma: no cover - deployment composition
     settings = get_settings()
     resolved = None
@@ -62,7 +92,13 @@ def _build():  # pragma: no cover - deployment composition
         )
         setup_tracing()
     get_client = default_client_provider()
-    application = create_app(get_client, resolved=resolved, get_substrate=get_substrate)
+    application = create_app(
+        get_client,
+        resolved=resolved,
+        get_substrate=get_substrate,
+        get_audit=_store_provider(PgAuditSink),
+        get_outcomes=_store_provider(PgOutcomeSink),
+    )
     # The Slack webhook exists only for roles that enable the channel. If the
     # role could not be loaded we cannot tell, so the route stays up.
     if resolved is None or "slack" in resolved.manifest.channels:

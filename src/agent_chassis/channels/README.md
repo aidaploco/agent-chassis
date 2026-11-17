@@ -23,11 +23,16 @@ to the running one after that. They differ only in how the reply gets back:
   duplicate keys** (D15), and a key is only remembered once the send succeeded,
   so a failed send's retry is not mistaken for a duplicate.
 - [`http.py`](http.py) — the HTTP channel and the FastAPI app factory. Endpoints:
-  `/v1/messages` (chat), `/v1/tasks` + `/v1/tasks/{id}` (kick off / poll a task),
+  `/v1/messages` (chat), `/v1/tasks` (kick off a task; `GET` lists this Employee's
+  recent runs, scoped by its task queue) + `/v1/tasks/{id}` (poll one),
   `/v1/approvals` (approve a paused task), `/v1/self` (introspection),
   `/healthz`. An unknown task or workflow id is a 404. Also home to
   `send_to_conversation` (the update-with-start call) and the root turn trace
   span. Auth is D21 (see below).
+- [`records.py`](records.py) — `GET /v1/audit` and `GET /v1/outcomes`: read-only,
+  authenticated, newest first, bounded, and scoped to this Employee by the
+  manifest's name (never by a query parameter). The api opens the stores
+  read-only (no DDL); an unavailable store is a 503, not a 500.
 - [`slack.py`](slack.py) — the Slack-shaped webhook router (ack fast, run the
   turn in the background; mounted only when the manifest lists `slack`) and
   `SlackOutboundSender` (LRU-deduped push delivery). One class serves two
